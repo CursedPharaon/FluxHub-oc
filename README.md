@@ -13,35 +13,35 @@ FluxHub — полноценная веб-платформа для публик
   - Модерация игр (тест → одобрить/отклонить с причиной)
   - Управление юзерами: выдать/забрать админку, баны на время (1h/24h/7d/30d/1y), разбан
   - Статистика, все игры, удаление
-  - `cursed_dev` — **superadmin** 👑 (нельзя забанить/забрать роль), логин `cursed_dev / 12345678`
+  - `cursed_dev` — **superadmin** 👑 (нельзя забанить/забрать роль, зарезервирован в JSON)
   - Все админы могут модерить
-- **JSONbin.io** синхронизация: `6a949376da38895dfe2401aa` — автосохранение, локальный кэш как fallback
+- **JSONbin.io** синхронизация через `server.py`: `6a90a8efda38895dfe19be69` — автосохранение через прокси `/api/db`, локальный кэш как fallback
 - Допы: toast-уведомления, анимированные частицы, адаптив, демо-игры
 
 ## 📁 Структура
 ```
 index.html
+server.py       — Python прокси к JSONbin.io (BIN 6a90a8efda38895dfe19be69, ключ на сервере)
 css/style.css
-js/config.js    — JSONbin ключи + SUPERADMIN
-js/storage.js   — загрузка/сохранение DB (JSONbin + localStorage)
+js/config.js    — BIN ID + SUPERADMIN (без ключа)
+js/storage.js   — загрузка/сохранение DB через /api/db + localStorage fallback
 js/auth.js      — регистрация, логин, роли, баны
 js/games.js     — публикация, каталог, библиотека, лайки, комменты, плеер
 js/admin.js     — модерация, юзеры, статистика
 js/app.js       — роутер, тосты, инициализация
 ```
 
-## 🔑 JSONbin
+## 🔑 JSONbin (через server.py)
 ```js
-BIN_ID: 6a949376da38895dfe2401aa
-KEY: $2a$10$LWOYmBp7ytOchSh0Nv0oY.WqaUwwSiPWlvSWB12sBmXmAVlt9..ly
-URL: https://api.jsonbin.io/v3/b/6a949376da38895dfe2401aa
+BIN_ID: 6a90a8efda38895dfe19be69
+URL: https://api.jsonbin.io/v3/b/6a90a8efda38895dfe19be69
+Proxy: /api/db  (GET/PUT) — ключ хранится только в server.py
 ```
-Данные: `{ users: [...], games: [...] }`. Все изменения уходят `PUT` с дебаунсом 900мс + throttle.
+Данные: `{ users: [...], games: [...] }`. Все изменения уходят `PUT` через прокси с дебаунсом 900мс + throttle. Прямой ключ в клиенте не хранится.
 
 ## 👑 Superadmin
 - Ник: `cursed_dev`
-- Пароль: `12345678`
-- Роль `superadmin` — вечный, нельзя забанить, видит админку сразу
+- Роль `superadmin` — вечный, нельзя забанить, видит админку сразу (создаётся автоматически в JSON)
 - Остальные админы — `admin`
 
 ## 🎮 Как опубликовать игру
@@ -59,10 +59,12 @@ URL: https://api.jsonbin.io/v3/b/6a949376da38895dfe2401aa
 - `rejected` → видно автору с причиной, можно переопубликовать новую версию
 
 ## 🧪 Локальный запуск
-Просто открой `index.html` через Live Server (из-за `fetch` к JSONbin нужен http). Или:
+Рекомендуется запускать через `server.py` — тогда сохранение реально уходит в JSONbin:
 ```bash
-npx serve .
+python server.py          # http://localhost:8000
+python server.py --port 3000
 ```
+Без сервера (просто `index.html` через Live Server) тоже работает, но с локальным кэшем `localStorage` как fallback. Для продакшна задеплой `server.py` на любой Python хостинг.
 
 ## 📜 Лицензия
 MIT — делай что хочешь, но не ломай FluxHub 😎

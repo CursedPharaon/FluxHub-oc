@@ -90,34 +90,37 @@ let lastSync = 0;
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 
 async function loadDB(){
-  // try JSONbin
+  // 1) try server proxy -> JSONBin (real saving)
   try{
-    const res = await fetch(CONFIG.JSONBIN_URL + "/latest", {
-      headers: { "X-Master-Key": CONFIG.JSONBIN_KEY, "X-Bin-Meta": "false" }
+    const res = await fetch((CONFIG.API_BASE || "/api") + "/db", {
+      headers: { "X-Bin-Meta": "false" },
+      cache: "no-store"
     });
     if(res.ok){
       const data = await res.json();
-      // jsonbin returns {record: {...}} or direct
       const record = data.record || data;
-      if(record && record.users && record.games){
+      if(record && Array.isArray(record.users) && Array.isArray(record.games)){
         DB = record;
-        // ensure superadmin exists and is not banned
         ensureSuperAdmin();
         localStorage.setItem("flux_db", JSON.stringify(DB));
-        console.log("[FluxHub] Loaded from JSONbin", DB);
+        console.log("[FluxHub] Loaded from JSONbin via server proxy", DB);
         return DB;
       }
     }
-    console.warn("[FluxHub] JSONbin latest failed", res.status, await res.text());
-  }catch(e){ console.warn("JSONbin load error", e); }
+    console.warn("[FluxHub] server proxy load failed", res.status, await res.text());
+  }catch(e){ console.warn("JSONbin via proxy load error", e); }
 
-  // fallback local
+  // 2) fallback localStorage cache
   const local = localStorage.getItem("flux_db");
   if(local){
-    try{ DB = JSON.parse(local); ensureSuperAdmin(); return DB; }catch{}
+    try{ DB = JSON.parse(local); ensureSuperAdmin(); console.log("[FluxHub] Loaded from localStorage cache"); return DB; }catch{}
   }
   DB = deepClone(DEFAULT_DATA);
   ensureSuperAdmin();
+  // fix timestamps for default demo games if created before
+  DB.games.forEach(g=>{
+    if(!g.createdAt) g.createdAt = Date.now();
+  });
   await saveDB(true);
   return DB;
 }
@@ -148,17 +151,21 @@ async function saveToBin(){
   if(Date.now()-lastSync < 800) return; // throttle
   lastSync = Date.now();
   try{
-    const res = await fetch(CONFIG.JSONBIN_URL, {
+    const res = await fetch((CONFIG.API_BASE || "/api") + "/db", {
       method: "PUT",
       headers: {
-        "Content-Type":"application/json",
-        "X-Master-Key": CONFIG.JSONBIN_KEY
+        "Content-Type":"application/json"
       },
       body: JSON.stringify(DB)
     });
-    if(!res.ok) console.warn("JSONbin save failed", res.status, await res.text());
-    else console.log("[FluxHub] Saved to JSONbin");
-  }catch(e){ console.warn("JSONbin save error", e); }
+    if(!res.ok) {
+      const txt = await res.text().catch(()=>res.statusText);
+      console.warn("JSONbin save via proxy failed", res.status, txt);
+      // keep localStorage as fallback, will retry on next saveDB
+    } else {
+      console.log("[FluxHub] Saved to JSONbin via server proxy");
+    }
+  }catch(e){ console.warn("JSONbin save via proxy error", e); }
 }
 
 function uid(prefix="id"){ return prefix+"_"+Math.random().toString(36).slice(2,9)+"_"+Date.now().toString(36) }
