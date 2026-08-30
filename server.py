@@ -100,6 +100,28 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
         self.send_error(404, "Not Found")
 
     # ---- proxy helpers ----
+    def _save_record_to_jsonbin(self, record):
+        """Сохраняет record в JSONbin напрямую (для автосоздания superadmin)"""
+        try:
+            body = json.dumps(record, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                JSONBIN_URL,
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Master-Key": API_KEY,
+                    "X-Bin-Meta": "false",
+                },
+                method="PUT",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read()
+                print(f"[auto-save] persisted {len(body)} bytes to JSONbin")
+                return True
+        except Exception as e:
+            print(f"[auto-save] failed: {e}")
+            return False
+
     def proxy_get_jsonbin(self):
         try:
             req = urllib.request.Request(
@@ -117,7 +139,10 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
                 # jsonbin может вернуть {record: {...}} или сам {...}
                 record = data.get("record", data) if isinstance(data, dict) else data
                 # ensure superadmin exist
-                self.ensure_superadmin(record)
+                changed = self.ensure_superadmin(record)
+                if changed:
+                    # persist fix so cursed_dev appears in bin for all clients
+                    self._save_record_to_jsonbin(record)
                 # если record пустой/кривой — вернём как есть
                 self.send_json(record)
                 print(f"[proxy GET] OK {len(body)} bytes")
@@ -127,6 +152,8 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
             # 404 = bin пустой, отдадим DEFAULT_DATA и попробуем создать
             if e.code == 404:
                 self.ensure_superadmin(DEFAULT_DATA)
+                # try to create bin
+                self._save_record_to_jsonbin(DEFAULT_DATA)
                 self.send_json(DEFAULT_DATA)
             else:
                 self.send_response(e.code)
@@ -190,29 +217,36 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": str(e)}, ensure_ascii=False).encode())
 
     def ensure_superadmin(self, record):
-        """Гарантирует что cursed_dev супер-админ и не забанен"""
+        """Гарантирует что cursed_dev супер-админ и не забанен. Возвращает True если были изменения."""
         if not isinstance(record, dict):
-            return
+            return False
         users = record.get("users")
         if not isinstance(users, list):
             record["users"] = users = []
         u = next((x for x in users if x.get("username") == "cursed_dev"), None)
+        changed = False
         if not u:
             import time
             new_u = dict(DEFAULT_DATA["users"][0])
             new_u["createdAt"] = int(time.time() * 1000)
             users.insert(0, new_u)
             print("[ensure] created superadmin cursed_dev")
+            return True
         else:
             # форсируем роль и разбан
             if u.get("role") != "superadmin":
                 u["role"] = "superadmin"
+                changed = True
             if u.get("bannedUntil") is not None:
                 u["bannedUntil"] = None
+                changed = True
             if not u.get("password"):
                 u["password"] = "12345678"
+                changed = True
             if not u.get("email"):
                 u["email"] = "cursed@fluxhub.dev"
+                changed = True
+            return changed
 
     def send_json(self, obj, status=200):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")

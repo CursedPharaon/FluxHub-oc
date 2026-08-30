@@ -120,7 +120,7 @@ async function doRegister(){
     bio: "Новый игрок FluxHub 🎮"
   };
   DB.users.push(newUser);
-  await saveDB();
+  await saveDB(true);
   currentUser = newUser;
   localStorage.setItem("flux_user", JSON.stringify(currentUser));
   closeAuth();
