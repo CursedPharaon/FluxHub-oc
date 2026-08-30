@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FluxHub — Игровая Платформа Будущего</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="particles"></div>
+<div id="toast-container"></div>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-inner">
+    <a class="logo" onclick="router('store')">
+      <div class="logo-icon"><i class="fa-solid fa-cube"></i></div>
+      <span class="logo-text">Flux<span>Hub</span></span>
+      <span class="logo-badge">BETA</span>
+    </a>
+
+    <nav class="nav">
+      <button data-view="store" class="nav-btn active" onclick="router('store')"><i class="fa-solid fa-store"></i> Магазин</button>
+      <button data-view="library" class="nav-btn" onclick="router('library')"><i class="fa-solid fa-layer-group"></i> Библиотека <span id="lib-count" class="count">0</span></button>
+      <button data-view="publish" class="nav-btn" onclick="router('publish')"><i class="fa-solid fa-cloud-arrow-up"></i> Опубликовать</button>
+      <button id="nav-admin" data-view="admin" class="nav-btn admin-only hidden" onclick="router('admin')"><i class="fa-solid fa-shield-halved"></i> Админка <span id="mod-count" class="count warn">0</span></button>
+    </nav>
+
+    <div class="header-right">
+      <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input id="search" placeholder="Поиск игр, жанров, авторов..." oninput="onSearch(this.value)">
+      </div>
+      <div id="user-area"></div>
+    </div>
+  </div>
+</header>
+
+<!-- HERO -->
+<section id="hero" class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-content">
+    <div class="hero-left">
+      <div class="hero-eyebrow"><span class="dot"></span> ПЛАТФОРМА №1 ДЛЯ HTML5 ИГР</div>
+      <h1>Играй. Создавай.<br><span class="grad">Захвати Flux.</span></h1>
+      <p>Тысячи инди-игр на HTML/JS. Публикуй за 30 секунд, проходи модерацию и попадай в топ. Как Steam, только быстрее и без бюрократии.</p>
+      <div class="hero-actions">
+        <button class="btn btn-primary" onclick="router('store')"><i class="fa-solid fa-rocket"></i> В каталог</button>
+        <button class="btn btn-ghost" onclick="router('publish')"><i class="fa-solid fa-code"></i> Стать разработчиком</button>
+      </div>
+      <div class="hero-stats">
+        <div><b id="stat-games">0</b><span>игр</span></div>
+        <div><b id="stat-users">0</b><span>игроков</span></div>
+        <div><b id="stat-online">1.2k</b><span>онлайн</span></div>
+      </div>
+    </div>
+    <div class="hero-right">
+      <div class="hero-card featured" id="hero-featured"></div>
+    </div>
+  </div>
+</section>
+
+<!-- MAIN -->
+<main class="container">
+  <!-- STORE VIEW -->
+  <section id="view-store" class="view active">
+    <div class="section-head">
+      <h2><i class="fa-solid fa-fire"></i> Популярное</h2>
+      <div class="tabs" id="category-tabs"></div>
+    </div>
+    <div id="store-grid" class="grid"></div>
+    <div id="store-empty" class="empty hidden">
+      <i class="fa-solid fa-ghost"></i>
+      <h3>Пока пусто</h3>
+      <p>Стань первым, кто опубликует игру!</p>
+      <button class="btn btn-primary" onclick="router('publish')">Опубликовать игру</button>
+    </div>
+
+    <div class="section-head" style="margin-top:36px">
+      <h2><i class="fa-solid fa-clock"></i> Новинки</h2>
+      <button class="btn btn-ghost small" onclick="setSort('new')">Сначала новые</button>
+    </div>
+    <div id="new-grid" class="grid"></div>
+  </section>
+
+  <!-- LIBRARY VIEW -->
+  <section id="view-library" class="view">
+    <div class="section-head">
+      <h2><i class="fa-solid fa-bookmark"></i> Моя библиотека</h2>
+      <span id="library-info" class="muted"></span>
+    </div>
+    <div id="library-grid" class="grid"></div>
+    <div id="library-empty" class="empty">
+      <i class="fa-solid fa-inbox"></i>
+      <h3>Библиотека пуста</h3>
+      <p>Добавляй игры из магазина — они появятся здесь</p>
+    </div>
+  </section>
+
+  <!-- PUBLISH VIEW -->
+  <section id="view-publish" class="view">
+    <div class="publish-layout">
+      <div class="publish-form card">
+        <h2><i class="fa-solid fa-wand-magic-sparkles"></i> Опубликовать игру</h2>
+        <p class="muted">Загрузи HTML/JS игру — после модерации она появится в магазине</p>
+
+        <label>Название игры *</label>
+        <input id="pub-title" placeholder="Например: NEON RUSH">
+
+        <label>Краткое описание *</label>
+        <textarea id="pub-desc" rows="3" placeholder="О чём твоя игра? 1-2 предложения, зацепи игрока"></textarea>
+
+        <div class="row2">
+          <div>
+            <label>Категория *</label>
+            <select id="pub-category">
+              <option value="action">Action</option>
+              <option value="arcade">Arcade</option>
+              <option value="puzzle">Puzzle</option>
+              <option value="shooter">Shooter</option>
+              <option value="racing">Racing</option>
+              <option value="horror">Horror</option>
+              <option value="strategy">Strategy</option>
+              <option value="casual">Casual</option>
+            </select>
+          </div>
+          <div>
+            <label>Теги (через запятую)</label>
+            <input id="pub-tags" placeholder="neon, hardcore, multiplayer">
+          </div>
+        </div>
+
+        <label>Логотип / Обложка * (до 2MB)</label>
+        <div class="upload" onclick="document.getElementById('pub-logo').click()">
+          <i class="fa-solid fa-image"></i>
+          <span id="pub-logo-text">Нажми чтобы загрузить PNG/JPG</span>
+          <img id="pub-logo-preview" class="hidden">
+        </div>
+        <input type="file" id="pub-logo" accept="image/*" class="hidden" onchange="handleLogo(this)">
+
+        <label>Скриншоты (до 4)</label>
+        <div class="upload" onclick="document.getElementById('pub-shots').click()">
+          <i class="fa-solid fa-images"></i><span id="pub-shots-text">Загрузить скриншоты</span>
+        </div>
+        <input type="file" id="pub-shots" accept="image/*" multiple class="hidden" onchange="handleShots(this)">
+        <div id="pub-shots-preview" class="shots-preview"></div>
+
+        <label>HTML код игры *</label>
+        <textarea id="pub-html" rows="8" placeholder="Вставь полный HTML игры. Можно с <style> и <canvas>..."></textarea>
+
+        <div class="row2">
+          <div>
+            <label>CSS (опционально)</label>
+            <textarea id="pub-css" rows="4" placeholder="Дополнительные стили"></textarea>
+          </div>
+          <div>
+            <label>JavaScript *</label>
+            <textarea id="pub-js" rows="4" placeholder="Логика игры. Будет выполнен после HTML"></textarea>
+          </div>
+        </div>
+
+        <label class="check"><input type="checkbox" id="pub-agree"> Я подтверждаю что игра моя и не нарушает правил</label>
+
+        <button class="btn btn-primary large" onclick="publishGame()"><i class="fa-solid fa-paper-plane"></i> Отправить на модерацию</button>
+        <p class="muted small">Модерация занимает до 24ч. Ты получишь уведомление.</p>
+      </div>
+
+      <div class="publish-side">
+        <div class="card tip">
+          <h3><i class="fa-solid fa-lightbulb"></i> Советы</h3>
+          <ul>
+            <li>Игры на <b>Canvas/WebGL</b> заходят лучше всего</li>
+            <li>Добавь управление с клавиатуры + геймпада</li>
+            <li>Сделай логотип 600×400, скриншоты 16:9</li>
+            <li>Не используй внешние ссылки — всё в одном HTML</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Предпросмотр</h3>
+          <div id="pub-preview-card" class="game-card preview">
+            <div class="thumb"><span class="no-logo">LOGO</span></div>
+            <div class="info"><b>Название</b><p>Описание появится здесь</p></div>
+          </div>
+        </div>
+        <div class="card demo-card">
+          <h3>Демо-шаблон</h3>
+          <p class="muted small">Вставь этот код чтобы протестировать</p>
+          <button class="btn btn-ghost small" onclick="loadDemo()">Загрузить демо-игру</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ADMIN VIEW -->
+  <section id="view-admin" class="view">
+    <div class="admin-head">
+      <h2><i class="fa-solid fa-crown"></i> Админ-панель <span class="badge-admin">cursed_dev • superadmin</span></h2>
+      <div class="admin-tabs">
+        <button class="tab active" onclick="adminTab('mod')"><i class="fa-solid fa-list-check"></i> Модерация <span id="admin-pending" class="count warn">0</span></button>
+        <button class="tab" onclick="adminTab('users')"><i class="fa-solid fa-users"></i> Пользователи</button>
+        <button class="tab" onclick="adminTab('games')"><i class="fa-solid fa-gamepad"></i> Все игры</button>
+        <button class="tab" onclick="adminTab('stats')"><i class="fa-solid fa-chart-line"></i> Статистика</button>
+      </div>
+    </div>
+
+    <div id="admin-mod" class="admin-pane active"></div>
+    <div id="admin-users" class="admin-pane"></div>
+    <div id="admin-games" class="admin-pane"></div>
+    <div id="admin-stats" class="admin-pane"></div>
+  </section>
+
+  <!-- PROFILE VIEW -->
+  <section id="view-profile" class="view">
+    <div id="profile-card" class="card"></div>
+  </section>
+</main>
+
+<!-- GAME MODAL -->
+<div id="game-modal" class="modal">
+  <div class="modal-bg" onclick="closeGame()"></div>
+  <div class="modal-box game-modal">
+    <button class="modal-close" onclick="closeGame()"><i class="fa-solid fa-xmark"></i></button>
+    <div id="game-modal-content"></div>
+  </div>
+</div>
+
+<!-- AUTH MODAL -->
+<div id="auth-modal" class="modal">
+  <div class="modal-bg" onclick="closeAuth()"></div>
+  <div class="modal-box auth-box">
+    <button class="modal-close" onclick="closeAuth()"><i class="fa-solid fa-xmark"></i></button>
+    <div class="auth-tabs">
+      <button id="tab-login" class="tab active" onclick="switchAuth('login')">Вход</button>
+      <button id="tab-reg" class="tab" onclick="switchAuth('reg')">Регистрация</button>
+    </div>
+    <div id="auth-login" class="auth-pane active">
+      <h3>С возвращением, игрок</h3>
+      <input id="login-user" placeholder="Ник или email">
+      <input id="login-pass" type="password" placeholder="Пароль">
+      <button class="btn btn-primary large" onclick="doLogin()">Войти</button>
+      <p class="muted small">Подсказка: cursed_dev / 12345678 — супер-админ</p>
+    </div>
+    <div id="auth-reg" class="auth-pane">
+      <h3>Создай аккаунт FluxHub</h3>
+      <input id="reg-user" placeholder="Ник (3-16 символов)">
+      <input id="reg-email" placeholder="Email">
+      <input id="reg-pass" type="password" placeholder="Пароль (мин 6)">
+      <input id="reg-pass2" type="password" placeholder="Повтори пароль">
+      <button class="btn btn-primary large" onclick="doRegister()">Зарегистрироваться</button>
+    </div>
+  </div>
+</div>
+
+<!-- IFRAME PLAYER MODAL -->
+<div id="play-modal" class="modal">
+  <div class="modal-bg" onclick="closePlay()"></div>
+  <div class="modal-box play-box">
+    <div class="play-bar">
+      <b id="play-title">Игра</b>
+      <div class="play-actions">
+        <button class="btn btn-ghost small" onclick="toggleFullscreen()"><i class="fa-solid fa-expand"></i> Fullscreen</button>
+        <button class="btn btn-ghost small" onclick="closePlay()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <iframe id="play-iframe" sandbox="allow-scripts allow-same-origin allow-pointer-lock"></iframe>
+  </div>
+</div>
+
+<footer class="footer">
+  <div class="footer-inner">
+    <span><i class="fa-solid fa-cube"></i> FluxHub © 2026 • Сделано с <i class="fa-solid fa-heart" style="color:#ff3b6e"></i> для инди-разработчиков</span>
+    <span class="muted">JSONbin sync • Версия 1.0 Beta • <a href="#" onclick="toast('FluxHub — скоро в Steam!','info')">API Docs</a></span>
+  </div>
+</footer>
+
+<script src="js/config.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/games.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
