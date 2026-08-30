@@ -101,9 +101,13 @@ async function loadDB(){
       const record = data.record || data;
       if(record && Array.isArray(record.users) && Array.isArray(record.games)){
         DB = record;
-        ensureSuperAdmin();
+        const changed = ensureSuperAdmin();
         localStorage.setItem("flux_db", JSON.stringify(DB));
         console.log("[FluxHub] Loaded from JSONbin via server proxy", DB);
+        if(changed){
+          // persist cursed_dev and any fixes immediately to JSONbin
+          await saveDB(true);
+        }
         return DB;
       }
     }
@@ -113,7 +117,17 @@ async function loadDB(){
   // 2) fallback localStorage cache
   const local = localStorage.getItem("flux_db");
   if(local){
-    try{ DB = JSON.parse(local); ensureSuperAdmin(); console.log("[FluxHub] Loaded from localStorage cache"); return DB; }catch{}
+    try{
+      DB = JSON.parse(local);
+      const changed = ensureSuperAdmin();
+      console.log("[FluxHub] Loaded from localStorage cache");
+      if(changed){
+        localStorage.setItem("flux_db", JSON.stringify(DB));
+        // try to sync fixed superadmin to bin in background
+        saveDB(true);
+      }
+      return DB;
+    }catch{}
   }
   DB = deepClone(DEFAULT_DATA);
   ensureSuperAdmin();
@@ -126,15 +140,22 @@ async function loadDB(){
 }
 
 function ensureSuperAdmin(){
-  if(!DB) return;
+  if(!DB) return false;
+  let changed = false;
   let u = DB.users.find(x=>x.username===CONFIG.SUPERADMIN);
   if(!u){
-    DB.users.unshift(deepClone(DEFAULT_DATA.users[0]));
+    const su = deepClone(DEFAULT_DATA.users[0]);
+    su.createdAt = Date.now();
+    DB.users.unshift(su);
+    changed = true;
   } else {
-    u.role = "superadmin";
-    u.bannedUntil = null;
-    if(u.username==="cursed_dev" && !u.password) u.password="12345678";
+    if(u.role !== "superadmin"){ u.role = "superadmin"; changed = true; }
+    if(u.bannedUntil !== null){ u.bannedUntil = null; changed = true; }
+    if(u.username==="cursed_dev" && !u.password){ u.password="12345678"; changed = true; }
+    if(!u.email){ u.email = "cursed@fluxhub.dev"; changed = true; }
+    if(!u.id){ u.id = "u_super"; changed = true; }
   }
+  return changed;
 }
 
 async function saveDB(immediate=false){
@@ -144,11 +165,17 @@ async function saveDB(immediate=false){
     saveTimer = setTimeout(()=> saveToBin(), 900);
     return;
   }
+  clearTimeout(saveTimer);
   await saveToBin();
 }
 
 async function saveToBin(){
-  if(Date.now()-lastSync < 800) return; // throttle
+  // throttle: wait instead of dropping, so accounts never lost
+  const now = Date.now();
+  const elapsed = now - lastSync;
+  if(elapsed < 800){
+    await new Promise(r=> setTimeout(r, 800 - elapsed));
+  }
   lastSync = Date.now();
   try{
     const res = await fetch((CONFIG.API_BASE || "/api") + "/db", {
