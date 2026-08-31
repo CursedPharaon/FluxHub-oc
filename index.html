@@ -25,8 +25,11 @@
     <nav class="nav">
       <button data-view="store" class="nav-btn active" onclick="router('store')"><i class="fa-solid fa-store"></i> Магазин</button>
       <button data-view="library" class="nav-btn" onclick="router('library')"><i class="fa-solid fa-layer-group"></i> Библиотека <span id="lib-count" class="count">0</span></button>
+      <button data-view="friends" class="nav-btn" onclick="router('friends')"><i class="fa-solid fa-user-group"></i> Друзья <span id="friends-count" class="count warn hidden">0</span></button>
+      <button data-view="chat" class="nav-btn" onclick="router('chat')"><i class="fa-solid fa-comments"></i> Чаты <span id="chat-count" class="count warn hidden">0</span></button>
       <button data-view="publish" class="nav-btn" onclick="router('publish')"><i class="fa-solid fa-cloud-arrow-up"></i> Опубликовать</button>
       <button id="nav-admin" data-view="admin" class="nav-btn admin-only hidden" onclick="router('admin')"><i class="fa-solid fa-shield-halved"></i> Админка <span id="mod-count" class="count warn">0</span></button>
+      <button data-view="settings" class="nav-btn" onclick="router('settings')"><i class="fa-solid fa-gear"></i> Настройки</button>
     </nav>
 
     <div class="header-right">
@@ -219,6 +222,15 @@
   <section id="view-profile" class="view">
     <div id="profile-card" class="card"></div>
   </section>
+
+  <!-- FRIENDS VIEW -->
+  <section id="view-friends" class="view"></section>
+
+  <!-- CHAT VIEW -->
+  <section id="view-chat" class="view"></section>
+
+  <!-- SETTINGS VIEW -->
+  <section id="view-settings" class="view"></section>
 </main>
 
 <!-- GAME MODAL -->
@@ -285,6 +297,7 @@
 <script src="js/auth.js"></script>
 <script src="js/games.js"></script>
 <script src="js/admin.js"></script>
+<script src="js/social.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

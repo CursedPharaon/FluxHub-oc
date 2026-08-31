@@ -43,10 +43,16 @@ DEFAULT_DATA = {
             "role": "superadmin",
             "bannedUntil": None,
             "createdAt": 0,
-            "bio": "Founder & Super Admin of FluxHub 👑"
+            "bio": "Founder & Super Admin of FluxHub 👑",
+            "friends": [],
+            "friendRequestsIncoming": [],
+            "friendRequestsOutgoing": [],
+            "privacy": {"friendsVisibility": "all", "gamesVisibility": "all"},
+            "settings": {"notifyFriendRequest": True, "notifyMessages": True, "soundEnabled": True, "showOnline": True, "language": "ru"}
         }
     ],
-    "games": []
+    "games": [],
+    "chats": []
 }
 
 class FluxHandler(http.server.SimpleHTTPRequestHandler):
@@ -216,6 +222,20 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"error": str(e)}, ensure_ascii=False).encode())
 
+    def _ensure_user_defaults(self, u):
+        ch=False
+        if not isinstance(u.get("friends"), list): u["friends"]=[]; ch=True
+        if not isinstance(u.get("friendRequestsIncoming"), list): u["friendRequestsIncoming"]=[]; ch=True
+        if not isinstance(u.get("friendRequestsOutgoing"), list): u["friendRequestsOutgoing"]=[]; ch=True
+        priv = u.get("privacy")
+        if not isinstance(priv, dict): u["privacy"]={"friendsVisibility":"all","gamesVisibility":"all"}; ch=True
+        else:
+            if priv.get("friendsVisibility") not in ("all","friends","none"): priv["friendsVisibility"]="all"; ch=True
+            if priv.get("gamesVisibility") not in ("all","friends","none"): priv["gamesVisibility"]="all"; ch=True
+        sett = u.get("settings")
+        if not isinstance(sett, dict): u["settings"]={"notifyFriendRequest":True,"notifyMessages":True,"soundEnabled":True,"showOnline":True,"language":"ru"}; ch=True
+        return ch
+
     def ensure_superadmin(self, record):
         """Гарантирует что cursed_dev супер-админ и не забанен. Возвращает True если были изменения."""
         if not isinstance(record, dict):
@@ -223,8 +243,42 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
         users = record.get("users")
         if not isinstance(users, list):
             record["users"] = users = []
+        if not isinstance(record.get("chats"), list):
+            record["chats"]=[]
+        # ensure defaults for all users
+        changed=False
+        for usr in users:
+            if self._ensure_user_defaults(usr):
+                changed=True
+        # clean friend refs
+        ids=set(x.get("id") for x in users)
+        for usr in users:
+            before=len(usr.get("friends",[]))
+            usr["friends"]=[i for i in usr.get("friends",[]) if i in ids and i!=usr.get("id")]
+            if len(usr["friends"])!=before: changed=True
+            before=len(usr.get("friendRequestsIncoming",[]))
+            usr["friendRequestsIncoming"]=[i for i in usr.get("friendRequestsIncoming",[]) if i in ids and i!=usr.get("id") and i not in usr.get("friends",[])]
+            if len(usr["friendRequestsIncoming"])!=before: changed=True
+            before=len(usr.get("friendRequestsOutgoing",[]))
+            usr["friendRequestsOutgoing"]=[i for i in usr.get("friendRequestsOutgoing",[]) if i in ids and i!=usr.get("id") and i not in usr.get("friends",[])]
+            if len(usr["friendRequestsOutgoing"])!=before: changed=True
+            # dedup
+            usr["friends"]=list(dict.fromkeys(usr["friends"]))
+            usr["friendRequestsIncoming"]=list(dict.fromkeys(usr["friendRequestsIncoming"]))
+            usr["friendRequestsOutgoing"]=list(dict.fromkeys(usr["friendRequestsOutgoing"]))
+        # validate chats
+        valid=[]
+        for c in record.get("chats",[]):
+            if not isinstance(c, dict): changed=True; continue
+            parts=c.get("participants")
+            if not isinstance(parts, list) or len(parts)!=2: changed=True; continue
+            if parts[0] not in ids or parts[1] not in ids: changed=True; continue
+            if not isinstance(c.get("messages"), list): c["messages"]=[]; changed=True
+            valid.append(c)
+        if len(valid)!=len(record.get("chats",[])):
+            record["chats"]=valid; changed=True
+
         u = next((x for x in users if x.get("username") == "cursed_dev"), None)
-        changed = False
         if not u:
             import time
             new_u = dict(DEFAULT_DATA["users"][0])
