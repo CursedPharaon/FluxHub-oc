@@ -26,6 +26,7 @@ function renderAdminMod(){
         <b>${esc(g.title)}</b> <span class="tag">${g.category}</span> <span class="muted" style="font-size:11px">от ${esc(g.author)} • ${new Date(g.createdAt).toLocaleString()}</span>
         <p>${esc(g.description)}</p>
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${g.tags.map(t=>`<span class="tag">#${t}</span>`).join("")}</div>
+        ${g.archiveName?`<div class="muted small" style="margin-top:6px"><i class="fa-solid fa-file-zipper"></i> ${esc(g.archiveName)} (${esc(g.archiveExt||'zip')}) • ${g.fileList?g.fileList.length+' файлов':''} • вход: ${esc(g.archiveEntry||'—')} • ${(g.archiveSize? (g.archiveSize/1024).toFixed(1)+' KB' : '')}</div>`:''}
       </div>
       <div class="admin-actions">
         <button class="btn btn-ghost small" onclick="playGame('${g.id}')"><i class="fa-solid fa-vial"></i> Тест</button>
@@ -140,7 +141,7 @@ function renderAdminGames(){
   document.getElementById("admin-games").innerHTML = all.map(g=>`
     <div class="admin-card">
       <img src="${g.logo}">
-      <div class="grow"><b>${esc(g.title)}</b> <span class="badge ${g.status==="approved"?"badge-approved":g.status==="pending"?"badge-pending":"badge-rejected"}">${g.status}</span><p>${esc(g.description)}</p><span class="muted" style="font-size:11px">${g.category} • ${g.plays} plays • ${g.likes.length} likes • ${esc(g.author)}</span></div>
+      <div class="grow"><b>${esc(g.title)}</b> <span class="badge ${g.status==="approved"?"badge-approved":g.status==="pending"?"badge-pending":"badge-rejected"}">${g.status}</span><p>${esc(g.description)}</p><span class="muted" style="font-size:11px">${g.category} • ${g.plays} plays • ${g.likes.length} likes • ${esc(g.author)} ${g.archiveName?`• <i class="fa-solid fa-file-zipper"></i> ${esc(g.archiveName)}`:''}</span></div>
       <div class="admin-actions">
         <button class="btn btn-ghost small" onclick="openGame('${g.id}')"><i class="fa-solid fa-eye"></i></button>
         <button class="btn btn-ghost small" onclick="playGame('${g.id}')"><i class="fa-solid fa-play"></i></button>

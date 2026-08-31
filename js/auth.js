@@ -145,19 +145,50 @@ function openProfile(userId){
   const games = DB.games.filter(g=>g.authorId===u.id && g.status==="approved");
   document.getElementById("profile-card").innerHTML = `
     <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-      <img src="${u.avatar}" style="width:80px;height:80px;border-radius:50%;border:3px solid var(--primary)">
+      <div style="position:relative">
+        <img src="${u.avatar}" style="width:80px;height:80px;border-radius:50%;border:3px solid var(--primary);object-fit:cover" onerror="this.src='https://i.pravatar.cc/200?u=${u.username}'">
+        ${isMe?`<button title="Сменить аватарку" onclick="document.getElementById('avatar-input').click()" style="position:absolute;bottom:0;right:0;width:28px;height:28px;border-radius:50%;background:var(--primary);border:2px solid var(--bg);color:#fff;display:grid;place-items:center;cursor:pointer"><i class="fa-solid fa-camera" style="font-size:12px"></i></button>`:''}
+      </div>
       <div>
         <h2 style="font-family:Orbitron;display:flex;align-items:center;gap:8px">${u.username} ${u.role==="superadmin"?'<span class="badge" style="background:linear-gradient(135deg,#ff2e63,#ff8a00);color:#fff">SUPERADMIN</span>':u.role==="admin"?'<span class="badge" style="background:var(--primary);color:#fff">ADMIN</span>':''} ${isBanned(u)?'<span class="ban-badge">BAN '+banTimeLeft(u)+'</span>':''}</h2>
         <p class="muted">${u.bio||""} • На платформе с ${new Date(u.createdAt).toLocaleDateString()}</p>
         <p class="muted">Игр опубликовано: ${games.length} • Лайков: ${games.reduce((a,g)=>a+g.likes.length,0)}</p>
       </div>
-      ${isMe?`<button class="btn btn-ghost small" onclick="editProfile()"><i class="fa-solid fa-pen"></i> Редактировать</button>`:''}
+      ${isMe?`<div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost small" onclick="editProfile()"><i class="fa-solid fa-pen"></i> Редактировать био</button>
+        <button class="btn btn-primary small" onclick="document.getElementById('avatar-input').click()"><i class="fa-solid fa-image"></i> Сменить аватарку</button>
+        <input type="file" id="avatar-input" accept="image/*" class="hidden" onchange="handleAvatarChange(this)">
+      </div>`:''}
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
       ${games.map(g=>`<div class="game-card" style="width:180px" onclick="openGame('${g.id}')"><div class="thumb" style="height:100px"><img src="${g.logo}"></div><div class="info"><b>${g.title}</b></div></div>`).join("") || '<p class="muted">Пока нет опубликованных игр</p>'}
     </div>
   `;
   router("profile");
+}
+
+function handleAvatarChange(input){
+  const f = input.files && input.files[0];
+  if(!f) return;
+  if(!f.type.startsWith("image/")) return toast("Выбери изображение","error");
+  if(f.size>2*1024*1024) return toast("Аватарка >2MB — выбери меньше","error");
+  const r = new FileReader();
+  r.onload = async e=>{
+    const dataUrl = e.target.result;
+    // simple validation: check dataUrl is image
+    currentUser.avatar = dataUrl;
+    const idx = DB.users.findIndex(x=>x.id===currentUser.id);
+    if(idx>=0) DB.users[idx].avatar = dataUrl;
+    // also update library? just user
+    localStorage.setItem("flux_user", JSON.stringify(currentUser));
+    await saveDB(true);
+    renderUserArea();
+    openProfile(currentUser.id);
+    toast("Аватарка обновлена ✨","success");
+  };
+  r.readAsDataURL(f);
+  // reset input to allow re-select same file
+  input.value="";
 }
 
 function editProfile(){
