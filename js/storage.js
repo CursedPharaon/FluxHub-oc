@@ -1,4 +1,17 @@
 // FluxHub Storage — JSONbin + localStorage fallback
+const DEFAULT_PRIVACY = { friendsVisibility: "all", gamesVisibility: "all" };
+const DEFAULT_SETTINGS = { notifyFriendRequest: true, notifyMessages: true, soundEnabled: true, showOnline: true, language: "ru" };
+
+function defaultUserExtras(){
+  return {
+    friends: [],
+    friendRequestsIncoming: [],
+    friendRequestsOutgoing: [],
+    privacy: { ...DEFAULT_PRIVACY },
+    settings: { ...DEFAULT_SETTINGS }
+  };
+}
+
 const DEFAULT_DATA = {
   users: [
     {
@@ -10,7 +23,12 @@ const DEFAULT_DATA = {
       role: "superadmin",
       bannedUntil: null,
       createdAt: Date.now(),
-      bio: "Founder & Super Admin of FluxHub 👑"
+      bio: "Founder & Super Admin of FluxHub 👑",
+      friends: [],
+      friendRequestsIncoming: [],
+      friendRequestsOutgoing: [],
+      privacy: { ...DEFAULT_PRIVACY },
+      settings: { ...DEFAULT_SETTINGS }
     }
   ],
   games: [
@@ -80,12 +98,68 @@ const DEFAULT_DATA = {
       comments: [],
       rejectReason: ""
     }
-  ]
+  ],
+  chats: [],
+  // friendRequests as legacy fallback not used; per-user arrays used
 };
 
 let DB = null;
 let saveTimer = null;
 let lastSync = 0;
+
+function ensureUserDefaults(u){
+  let ch=false;
+  if(!Array.isArray(u.friends)){ u.friends=[]; ch=true; }
+  if(!Array.isArray(u.friendRequestsIncoming)){ u.friendRequestsIncoming=[]; ch=true; }
+  if(!Array.isArray(u.friendRequestsOutgoing)){ u.friendRequestsOutgoing=[]; ch=true; }
+  if(!u.privacy || typeof u.privacy!=='object'){ u.privacy={...DEFAULT_PRIVACY}; ch=true; }
+  else {
+    if(!["all","friends","none"].includes(u.privacy.friendsVisibility)){ u.privacy.friendsVisibility="all"; ch=true; }
+    if(!["all","friends","none"].includes(u.privacy.gamesVisibility)){ u.privacy.gamesVisibility="all"; ch=true; }
+  }
+  if(!u.settings || typeof u.settings!=='object'){ u.settings={...DEFAULT_SETTINGS}; ch=true; }
+  else {
+    for(const k of Object.keys(DEFAULT_SETTINGS)){
+      if(u.settings[k]===undefined){ u.settings[k]=DEFAULT_SETTINGS[k]; ch=true; }
+    }
+  }
+  return ch;
+}
+
+function ensureDBDefaults(){
+  if(!DB) return false;
+  let ch=false;
+  if(!Array.isArray(DB.chats)){ DB.chats=[]; ch=true; }
+  if(!Array.isArray(DB.users)) DB.users=[];
+  DB.users.forEach(u=>{ if(ensureUserDefaults(u)) ch=true; });
+  // clean invalid friend refs
+  const ids=new Set(DB.users.map(x=>x.id));
+  DB.users.forEach(u=>{
+    const beforeF=u.friends.length;
+    u.friends=u.friends.filter(id=>ids.has(id) && id!==u.id);
+    if(u.friends.length!==beforeF) ch=true;
+    const beforeI=u.friendRequestsIncoming.length;
+    u.friendRequestsIncoming=u.friendRequestsIncoming.filter(id=>ids.has(id) && id!==u.id && !u.friends.includes(id));
+    if(u.friendRequestsIncoming.length!==beforeI) ch=true;
+    const beforeO=u.friendRequestsOutgoing.length;
+    u.friendRequestsOutgoing=u.friendRequestsOutgoing.filter(id=>ids.has(id) && id!==u.id && !u.friends.includes(id));
+    if(u.friendRequestsOutgoing.length!==beforeO) ch=true;
+    // deduplicate
+    u.friends=[...new Set(u.friends)];
+    u.friendRequestsIncoming=[...new Set(u.friendRequestsIncoming)];
+    u.friendRequestsOutgoing=[...new Set(u.friendRequestsOutgoing)];
+  });
+  // ensure chats valid
+  const validChats=[];
+  DB.chats.forEach(c=>{
+    if(!c || !Array.isArray(c.participants) || c.participants.length!==2) { ch=true; return; }
+    if(!ids.has(c.participants[0]) || !ids.has(c.participants[1])) { ch=true; return; }
+    if(!Array.isArray(c.messages)) c.messages=[];
+    validChats.push(c);
+  });
+  if(validChats.length!==DB.chats.length){ DB.chats=validChats; ch=true; }
+  return ch;
+}
 
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 
@@ -101,7 +175,8 @@ async function loadDB(){
       const record = data.record || data;
       if(record && Array.isArray(record.users) && Array.isArray(record.games)){
         DB = record;
-        const changed = ensureSuperAdmin();
+        let changed = ensureSuperAdmin();
+        if(ensureDBDefaults()) changed=true;
         localStorage.setItem("flux_db", JSON.stringify(DB));
         console.log("[FluxHub] Loaded from JSONbin via server proxy", DB);
         if(changed){
@@ -119,7 +194,8 @@ async function loadDB(){
   if(local){
     try{
       DB = JSON.parse(local);
-      const changed = ensureSuperAdmin();
+      let changed = ensureSuperAdmin();
+      if(ensureDBDefaults()) changed=true;
       console.log("[FluxHub] Loaded from localStorage cache");
       if(changed){
         localStorage.setItem("flux_db", JSON.stringify(DB));
@@ -131,6 +207,7 @@ async function loadDB(){
   }
   DB = deepClone(DEFAULT_DATA);
   ensureSuperAdmin();
+  ensureDBDefaults();
   // fix timestamps for default demo games if created before
   DB.games.forEach(g=>{
     if(!g.createdAt) g.createdAt = Date.now();
@@ -154,7 +231,13 @@ function ensureSuperAdmin(){
     if(u.username==="cursed_dev" && !u.password){ u.password="12345678"; changed = true; }
     if(!u.email){ u.email = "cursed@fluxhub.dev"; changed = true; }
     if(!u.id){ u.id = "u_super"; changed = true; }
+    if(ensureUserDefaults(u)) changed=true;
   }
+  // ensure all users have defaults
+  if(DB.users.forEach){
+    DB.users.forEach(x=>{ if(ensureUserDefaults(x)) changed=true; });
+  }
+  if(!Array.isArray(DB.chats)){ DB.chats=[]; changed=true; }
   return changed;
 }
 
