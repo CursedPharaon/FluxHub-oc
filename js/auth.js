@@ -5,12 +5,20 @@ function initAuth(){
   if(saved){
     try{
       const u = JSON.parse(saved);
-      // re-validate against DB
       const real = DB.users.find(x=>x.id===u.id);
       if(real && !isBanned(real)){
         currentUser = real;
+        // validate token in background
+        const token = localStorage.getItem("flux_token");
+        if(token){
+          fetch((CONFIG.API_BASE||"/api")+"/auth/me", {headers:{Authorization:"Bearer "+token}})
+            .then(r=> r.ok? r.json(): Promise.reject())
+            .then(j=>{ if(j.user){ currentUser = DB.users.find(x=>x.id===j.user.id) || currentUser; renderUserArea(); }})
+            .catch(()=>{});
+        }
       } else {
         localStorage.removeItem("flux_user");
+        localStorage.removeItem("flux_token");
       }
     }catch{}
   }
@@ -34,10 +42,6 @@ function banTimeLeft(user){
 function isAdmin(user){ return user && (user.role==="admin" || user.role==="superadmin"); }
 function isSuper(user){ return user && user.role==="superadmin"; }
 
-function hashPass(p){ // simple demo hash
-  return btoa(p).slice(0,32);
-}
-
 function renderUserArea(){
   const el = document.getElementById("user-area");
   const adminBtn = document.getElementById("nav-admin");
@@ -48,7 +52,6 @@ function renderUserArea(){
     el.innerHTML = `<button class="btn-login" onclick="openAuth()"><i class="fa-solid fa-right-to-bracket"></i> Войти</button>`;
     return;
   }
-  // show admin button if admin
   if(isAdmin(currentUser)){ if(adminBtn) adminBtn.classList.remove("hidden"); if(adminBtnM) adminBtnM.classList.remove("hidden"); }
   else { if(adminBtn) adminBtn.classList.add("hidden"); if(adminBtnM) adminBtnM.classList.add("hidden"); }
 
@@ -83,7 +86,46 @@ async function doLogin(){
   const user = document.getElementById("login-user").value.trim();
   const pass = document.getElementById("login-pass").value;
   if(!user||!pass) return toast("Заполни все поля","error");
-  const found = DB.users.find(u=> (u.username===user || u.email===user) && u.password===pass);
+  // 1) пробуем реальную БД через сервер
+  try{
+    const res = await fetch((CONFIG.API_BASE||"/api")+"/auth/login", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({login:user, password:pass})
+    });
+    const j = await res.json().catch(()=>({}));
+    if(res.ok && j.user && j.token){
+      localStorage.setItem("flux_token", j.token);
+      // обновим локальный DB из ответа (или перезагрузим)
+      // найдем юзера в DB и синхронизируем, если нет — добавим
+      let real = DB.users.find(u=>u.id===j.user.id);
+      if(!real){
+        DB.users.push(j.user);
+        real = j.user;
+        // перезагрузим полный DB для актуальности
+        await loadDB();
+        real = DB.users.find(u=>u.id===j.user.id) || j.user;
+      } else {
+        Object.assign(real, j.user);
+      }
+      if(isBanned(real)){
+        localStorage.removeItem("flux_token");
+        return toast(`Ты забанен ещё ${banTimeLeft(real)} ⛔`,"error");
+      }
+      currentUser = real;
+      localStorage.setItem("flux_user", JSON.stringify(currentUser));
+      closeAuth();
+      renderUserArea();
+      renderAll();
+      toast(`Привет, ${currentUser.username}! 👋`,"success");
+      return;
+    } else {
+      if(j.error) return toast(j.error,"error");
+    }
+  }catch(e){ console.warn("login via API failed, fallback local", e); }
+  // 2) fallback локально (для оффлайна / старых записей)
+  const found = DB.users.find(u=> (u.username===user || u.email===user) && (u.password===pass || u.password===pass));
+  // try hashed compare not possible client-side; fallback plain only
   if(!found) return toast("Неверный ник/email или пароль","error");
   if(isBanned(found)){
     return toast(`Ты забанен ещё ${banTimeLeft(found)} ⛔ Причина: ${found.banReason||'нарушение правил'}`,"error");
@@ -105,11 +147,37 @@ async function doRegister(){
   if(u.length<3) return toast("Ник минимум 3 символа","error");
   if(p.length<6) return toast("Пароль минимум 6 символов","error");
   if(p!==p2) return toast("Пароли не совпадают","error");
-  if(DB.users.some(x=>x.username.toLowerCase()===u.toLowerCase())) return toast("Ник уже занят","error");
-  if(DB.users.some(x=>x.email.toLowerCase()===e.toLowerCase())) return toast("Email уже используется","error");
-  // cursed_dev is reserved superadmin
   if(u.toLowerCase()==="cursed_dev") return toast("Этот ник зарезервирован 👑","error");
 
+  // пробуем сервер
+  try{
+    const res = await fetch((CONFIG.API_BASE||"/api")+"/auth/register", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({username:u, email:e, password:p})
+    });
+    const j = await res.json().catch(()=>({}));
+    if(res.ok && j.user && j.token){
+      localStorage.setItem("flux_token", j.token);
+      DB.users.push(j.user);
+      currentUser = DB.users.find(x=>x.id===j.user.id);
+      localStorage.setItem("flux_user", JSON.stringify(currentUser));
+      // также обновим локальный кэш через save? Но регистрация уже в БД, подтянем
+      await loadDB();
+      currentUser = DB.users.find(x=>x.id===j.user.id) || currentUser;
+      localStorage.setItem("flux_user", JSON.stringify(currentUser));
+      closeAuth();
+      renderUserArea();
+      renderAll();
+      toast("Аккаунт создан! Добро пожаловать в FluxHub 🚀","success");
+      return;
+    } else {
+      if(j.error) return toast(j.error,"error");
+    }
+  }catch(err){ console.warn("register via API failed, fallback", err); }
+  // fallback локально (если сервер недоступен — создадим локально и попытаемся сохранить)
+  if(DB.users.some(x=>x.username.toLowerCase()===u.toLowerCase())) return toast("Ник уже занят","error");
+  if(DB.users.some(x=>x.email.toLowerCase()===e.toLowerCase())) return toast("Email уже используется","error");
   const newUser = {
     id: uid("u"),
     username: u,
@@ -140,6 +208,7 @@ async function doRegister(){
 function logout(){
   currentUser=null;
   localStorage.removeItem("flux_user");
+  localStorage.removeItem("flux_token");
   renderUserArea();
   renderAll();
   toast("Ты вышел из аккаунта","info");
@@ -151,7 +220,6 @@ function openProfile(userId){
   if(!u) return;
   window._lastProfileId = u.id;
   const isMe = currentUser && currentUser.id===u.id;
-  // ensure defaults
   if(typeof ensureUserDefaults==="function") ensureUserDefaults(u);
   const viewerId = currentUser?.id || null;
   const canSeeFriends = canViewFriends ? canViewFriends(viewerId, u) : true;
@@ -161,7 +229,6 @@ function openProfile(userId){
   const friendsList = (u.friends||[]).map(id=> DB.users.find(x=>x.id===id)).filter(Boolean);
   const friendsVisible = canSeeFriends ? friendsList : [];
   const friendCount = friendsList.length;
-  // friend action state
   let friendAction = "";
   if(currentUser && !isMe){
     if(areFriends && areFriends(currentUser.id, u.id)){
@@ -173,9 +240,6 @@ function openProfile(userId){
     } else {
       friendAction = `<button class="btn btn-primary small" onclick="sendFriendRequest('${u.id}')"><i class="fa-solid fa-user-plus"></i> Добавить в друзья</button><button class="btn btn-ghost small" onclick="openChatWith('${u.id}')"><i class="fa-solid fa-comments"></i> Чат</button>`;
     }
-  }
-  if(currentUser && !isMe && typeof areFriends==="function" && !areFriends(currentUser.id,u.id)){
-    // if not friends, chat button should maybe be disabled via handler
   }
   document.getElementById("profile-card").innerHTML = `
     <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
@@ -223,7 +287,6 @@ function triggerAvatarPicker(){
   if(inp){
     inp.click();
   } else {
-    // fallback: create temporary input if profile not rendered (desktop explorer / mobile gallery)
     if(!currentUser) return toast("Войди чтобы сменить аватарку","error");
     const tmp = document.createElement('input');
     tmp.type='file';
@@ -240,7 +303,6 @@ function handleAvatarChange(input){
   const f = input.files && input.files[0];
   if(!f) return;
   if(!currentUser) return toast("Войди чтобы сменить аватарку","error");
-  // strictly PNG/JPEG as requested; allow detection by MIME or file extension fallback (mobile may give empty MIME)
   const allowedTypes = ["image/png","image/jpeg","image/jpg"];
   const ext = f.name ? f.name.split(".").pop().toLowerCase() : "";
   const allowedExts = ["png","jpg","jpeg"];
@@ -274,7 +336,6 @@ function handleAvatarChange(input){
       input.value="";
       return;
     }
-    // validate image loads
     const img = new Image();
     img.onload = async ()=>{
       currentUser.avatar = dataUrl;

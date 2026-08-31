@@ -1,0 +1,3 @@
+# FluxHub Real DB — no mandatory deps (uses stdlib sqlite)
+# Optional for PostgreSQL support:
+psycopg2-binary>=2.9.9
