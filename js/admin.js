@@ -197,10 +197,10 @@ function renderAdminStats(){
       </div>
     </div>
     <div class="card" style="margin-top:12px">
-      <h3>JSONbin статус</h3>
-      <p class="muted" style="margin-top:6px">Bin: <code>${CONFIG.JSONBIN_BIN_ID}</code> • Автосохранение включено • Локальный кэш + облако</p>
-      <button class="btn btn-primary small" style="margin-top:8px" onclick="saveDB(true).then(()=>toast('Синхронизировано с JSONbin','success'))"><i class="fa-solid fa-cloud-arrow-up"></i> Синхронизировать сейчас</button>
-      <button class="btn btn-ghost small" onclick="if(confirm('Сбросить к дефолту?')){localStorage.clear();location.reload()}"><i class="fa-solid fa-rotate"></i> Сбросить</button>
+      <h3>Real DB статус</h3>
+      <p class="muted" style="margin-top:6px">DB: <code>SQLite / PostgreSQL</code> • Автосохранение включено • Кросс-девайс • <span id="db-health"></span></p>
+      <button class="btn btn-primary small" style="margin-top:8px" onclick="saveDB(true).then(()=>toast('Синхронизировано с Real DB','success'));fetch('/api/health').then(r=>r.json()).then(j=>{document.getElementById('db-health').textContent=j.db+' • users:'+j.users+' games:'+j.games})"><i class="fa-solid fa-cloud-arrow-up"></i> Синхронизировать сейчас</button>
+      <button class="btn btn-ghost small" onclick="if(confirm('Сбросить к дефолту?')){localStorage.clear();location.reload()}"><i class="fa-solid fa-rotate"></i> Сбросить кэш</button>
     </div>
   `;
 }

@@ -130,5 +130,5 @@ window.addEventListener("DOMContentLoaded", async ()=>{
       }
     }
   }, 5000);
-  console.log("%cFluxHub%c loaded • cursed_dev 👑 superadmin • JSONbin synced • friends+chat+settings", "background:#6c5cff;color:#fff;padding:4px 8px;border-radius:6px;font-weight:800", "color:#8b93b8");
+  console.log("%cFluxHub%c loaded • cursed_dev 👑 superadmin • Real DB (SQLite/PostgreSQL) • friends+chat+settings", "background:#6c5cff;color:#fff;padding:4px 8px;border-radius:6px;font-weight:800", "color:#8b93b8");
 });

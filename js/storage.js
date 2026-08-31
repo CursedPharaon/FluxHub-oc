@@ -1,4 +1,4 @@
-// FluxHub Storage — JSONbin + localStorage fallback
+// FluxHub Storage — Real DB (SQLite/PostgreSQL) + localStorage cache
 const DEFAULT_PRIVACY = { friendsVisibility: "all", gamesVisibility: "all" };
 const DEFAULT_SETTINGS = { notifyFriendRequest: true, notifyMessages: true, soundEnabled: true, showOnline: true, language: "ru" };
 
@@ -102,7 +102,6 @@ const DEFAULT_DATA = {
     }
   ],
   chats: [],
-  // friendRequests as legacy fallback not used; per-user arrays used
 };
 
 let DB = null;
@@ -135,7 +134,6 @@ function ensureDBDefaults(){
   if(!Array.isArray(DB.chats)){ DB.chats=[]; ch=true; }
   if(!Array.isArray(DB.users)) DB.users=[];
   DB.users.forEach(u=>{ if(ensureUserDefaults(u)) ch=true; });
-  // clean invalid friend refs
   const ids=new Set(DB.users.map(x=>x.id));
   const gameIds=new Set((DB.games||[]).map(g=>g.id));
   DB.users.forEach(u=>{
@@ -148,18 +146,15 @@ function ensureDBDefaults(){
     const beforeO=u.friendRequestsOutgoing.length;
     u.friendRequestsOutgoing=u.friendRequestsOutgoing.filter(id=>ids.has(id) && id!==u.id && !u.friends.includes(id));
     if(u.friendRequestsOutgoing.length!==beforeO) ch=true;
-    // deduplicate
     u.friends=[...new Set(u.friends)];
     u.friendRequestsIncoming=[...new Set(u.friendRequestsIncoming)];
     u.friendRequestsOutgoing=[...new Set(u.friendRequestsOutgoing)];
-    // library: dedup + remove deleted games
     if(Array.isArray(u.library)){
       const beforeL=u.library.length;
       u.library=[...new Set(u.library)].filter(id=>gameIds.has(id));
       if(u.library.length!==beforeL) ch=true;
     } else { u.library=[]; ch=true; }
   });
-  // ensure chats valid
   const validChats=[];
   DB.chats.forEach(c=>{
     if(!c || !Array.isArray(c.participants) || c.participants.length!==2) { ch=true; return; }
@@ -173,7 +168,6 @@ function ensureDBDefaults(){
 
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 
-// Миграция старых библиотек из localStorage (flux_lib_<userId>) в DB.users[].library
 function migrateLegacyLibraries(){
   if(!DB || !Array.isArray(DB.users)) return false;
   let changed=false;
@@ -187,23 +181,24 @@ function migrateLegacyLibraries(){
       if(!Array.isArray(arr) || !arr.length) continue;
       if(!Array.isArray(u.library)) u.library=[];
       const merged=[...new Set([...u.library, ...arr])].filter(id=>gameIds.has(id) || !gameIds.size);
-      // если gameIds пустой (нет игр), просто мерджим
       if(merged.length!==u.library.length){
         u.library=merged;
         changed=true;
         console.log(`[migrate] library ${u.username}: +${arr.length} from localStorage`);
       }
-      // оставляем ключ для совместимости, но можно очистить после успешной синхронизации
     }catch(e){ console.warn("migrate lib error",e); }
   }
   return changed;
 }
 
 async function loadDB(){
-  // 1) try server proxy -> JSONBin (real saving)
+  // 1) try real DB via /api/db
   try{
+    const headers = {};
+    const token = localStorage.getItem("flux_token");
+    if(token) headers["Authorization"] = "Bearer " + token;
     const res = await fetch((CONFIG.API_BASE || "/api") + "/db", {
-      headers: { "X-Bin-Meta": "false" },
+      headers,
       cache: "no-store"
     });
     if(res.ok){
@@ -214,19 +209,17 @@ async function loadDB(){
         let changed = ensureSuperAdmin();
         if(ensureDBDefaults()) changed=true;
         if(migrateLegacyLibraries()) changed=true;
-        // повторная чистка library после миграции
         if(ensureDBDefaults()) changed=true;
         localStorage.setItem("flux_db", JSON.stringify(DB));
-        console.log("[FluxHub] Loaded from JSONbin via server proxy", DB);
+        console.log("[FluxHub] Loaded from Real DB (SQLite/PostgreSQL)", DB);
         if(changed){
-          // persist cursed_dev and any fixes immediately to JSONbin
           await saveDB(true);
         }
         return DB;
       }
     }
-    console.warn("[FluxHub] server proxy load failed", res.status, await res.text());
-  }catch(e){ console.warn("JSONbin via proxy load error", e); }
+    console.warn("[FluxHub] /api/db load failed", res.status, await res.text().catch(()=>res.statusText));
+  }catch(e){ console.warn("Real DB load error", e); }
 
   // 2) fallback localStorage cache
   const local = localStorage.getItem("flux_db");
@@ -240,7 +233,6 @@ async function loadDB(){
       console.log("[FluxHub] Loaded from localStorage cache");
       if(changed){
         localStorage.setItem("flux_db", JSON.stringify(DB));
-        // try to sync fixed superadmin to bin in background
         saveDB(true);
       }
       return DB;
@@ -251,7 +243,6 @@ async function loadDB(){
   ensureDBDefaults();
   migrateLegacyLibraries();
   ensureDBDefaults();
-  // fix timestamps for default demo games if created before
   DB.games.forEach(g=>{
     if(!g.createdAt) g.createdAt = Date.now();
   });
@@ -276,7 +267,6 @@ function ensureSuperAdmin(){
     if(!u.id){ u.id = "u_super"; changed = true; }
     if(ensureUserDefaults(u)) changed=true;
   }
-  // ensure all users have defaults
   if(DB.users.forEach){
     DB.users.forEach(x=>{ if(ensureUserDefaults(x)) changed=true; });
   }
@@ -288,15 +278,14 @@ async function saveDB(immediate=false){
   localStorage.setItem("flux_db", JSON.stringify(DB));
   if(!immediate){
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(()=> saveToBin(), 900);
+    saveTimer = setTimeout(()=> saveToDB(), 900);
     return;
   }
   clearTimeout(saveTimer);
-  await saveToBin();
+  await saveToDB();
 }
 
-async function saveToBin(){
-  // throttle: wait instead of dropping, so accounts never lost
+async function saveToDB(){
   const now = Date.now();
   const elapsed = now - lastSync;
   if(elapsed < 800){
@@ -304,21 +293,21 @@ async function saveToBin(){
   }
   lastSync = Date.now();
   try{
+    const headers = { "Content-Type":"application/json" };
+    const token = localStorage.getItem("flux_token");
+    if(token) headers["Authorization"] = "Bearer " + token;
     const res = await fetch((CONFIG.API_BASE || "/api") + "/db", {
       method: "PUT",
-      headers: {
-        "Content-Type":"application/json"
-      },
+      headers,
       body: JSON.stringify(DB)
     });
     if(!res.ok) {
       const txt = await res.text().catch(()=>res.statusText);
-      console.warn("JSONbin save via proxy failed", res.status, txt);
-      // keep localStorage as fallback, will retry on next saveDB
+      console.warn("Real DB save failed", res.status, txt);
     } else {
-      console.log("[FluxHub] Saved to JSONbin via server proxy");
+      console.log("[FluxHub] Saved to Real DB (SQLite/PostgreSQL)");
     }
-  }catch(e){ console.warn("JSONbin save via proxy error", e); }
+  }catch(e){ console.warn("Real DB save error", e); }
 }
 
 function uid(prefix="id"){ return prefix+"_"+Math.random().toString(36).slice(2,9)+"_"+Date.now().toString(36) }
