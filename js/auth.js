@@ -124,7 +124,8 @@ async function doRegister(){
     friendRequestsIncoming: [],
     friendRequestsOutgoing: [],
     privacy: { ...DEFAULT_PRIVACY },
-    settings: { ...DEFAULT_SETTINGS }
+    settings: { ...DEFAULT_SETTINGS },
+    library: []
   };
   DB.users.push(newUser);
   await saveDB(true);

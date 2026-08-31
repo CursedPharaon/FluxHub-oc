@@ -155,6 +155,20 @@ function renderAdminGames(){
 async function deleteGame(id){
   if(!confirm("Удалить игру навсегда?")) return;
   DB.games = DB.games.filter(g=>g.id!==id);
+  // чистим библиотеки всех пользователей от удалённой игры (крос-браузер консистентность)
+  DB.users.forEach(u=>{
+    if(Array.isArray(u.library)){
+      const before=u.library.length;
+      u.library=u.library.filter(gid=>gid!==id);
+      if(u.library.length!==before){
+        try{ localStorage.setItem("flux_lib_"+u.id, JSON.stringify(u.library)); }catch{}
+      }
+    }
+  });
+  // синхронизируем currentUser ссылку
+  if(currentUser && Array.isArray(currentUser.library)){
+    currentUser.library=currentUser.library.filter(gid=>gid!==id);
+  }
   await saveDB();
   toast("Игра удалена","success");
   renderAll();

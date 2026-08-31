@@ -48,7 +48,8 @@ DEFAULT_DATA = {
             "friendRequestsIncoming": [],
             "friendRequestsOutgoing": [],
             "privacy": {"friendsVisibility": "all", "gamesVisibility": "all"},
-            "settings": {"notifyFriendRequest": True, "notifyMessages": True, "soundEnabled": True, "showOnline": True, "language": "ru"}
+            "settings": {"notifyFriendRequest": True, "notifyMessages": True, "soundEnabled": True, "showOnline": True, "language": "ru"},
+            "library": []
         }
     ],
     "games": [],
@@ -227,6 +228,7 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
         if not isinstance(u.get("friends"), list): u["friends"]=[]; ch=True
         if not isinstance(u.get("friendRequestsIncoming"), list): u["friendRequestsIncoming"]=[]; ch=True
         if not isinstance(u.get("friendRequestsOutgoing"), list): u["friendRequestsOutgoing"]=[]; ch=True
+        if not isinstance(u.get("library"), list): u["library"]=[]; ch=True
         priv = u.get("privacy")
         if not isinstance(priv, dict): u["privacy"]={"friendsVisibility":"all","gamesVisibility":"all"}; ch=True
         else:
@@ -250,8 +252,9 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
         for usr in users:
             if self._ensure_user_defaults(usr):
                 changed=True
-        # clean friend refs
+        # clean friend refs + library
         ids=set(x.get("id") for x in users)
+        game_ids=set(x.get("id") for x in record.get("games",[]) if isinstance(x, dict))
         for usr in users:
             before=len(usr.get("friends",[]))
             usr["friends"]=[i for i in usr.get("friends",[]) if i in ids and i!=usr.get("id")]
@@ -266,6 +269,20 @@ class FluxHandler(http.server.SimpleHTTPRequestHandler):
             usr["friends"]=list(dict.fromkeys(usr["friends"]))
             usr["friendRequestsIncoming"]=list(dict.fromkeys(usr["friendRequestsIncoming"]))
             usr["friendRequestsOutgoing"]=list(dict.fromkeys(usr["friendRequestsOutgoing"]))
+            # library cleanup
+            lib=usr.get("library")
+            if not isinstance(lib, list):
+                usr["library"]=[]; changed=True
+            else:
+                before=len(lib)
+                # keep only existing game ids, dedup
+                dedup=list(dict.fromkeys(lib))
+                filtered=[i for i in dedup if i in game_ids]
+                # if game_ids empty (no games yet), keep dedup as is
+                if not game_ids:
+                    filtered=dedup
+                usr["library"]=filtered
+                if len(filtered)!=before or dedup!=lib: changed=True
         # validate chats
         valid=[]
         for c in record.get("chats",[]):
