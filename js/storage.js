@@ -1,4 +1,6 @@
 // FluxHub Storage — Real DB (SQLite/PostgreSQL) + localStorage cache
+// Теперь данные строго с сервера: все устройства видят одно и то же.
+// localStorage используется ТОЛЬКО как кэш для офлайн-чтения, никогда не перезаписывает сервер старыми данными.
 const DEFAULT_PRIVACY = { friendsVisibility: "all", gamesVisibility: "all" };
 const DEFAULT_SETTINGS = { notifyFriendRequest: true, notifyMessages: true, soundEnabled: true, showOnline: true, language: "ru" };
 
@@ -107,6 +109,9 @@ const DEFAULT_DATA = {
 let DB = null;
 let saveTimer = null;
 let lastSync = 0;
+let _syncInterval = null;
+let _lastServerHash = "";
+let _offlineWarned = false;
 
 function ensureUserDefaults(u){
   let ch=false;
@@ -186,58 +191,77 @@ function migrateLegacyLibraries(){
         changed=true;
         console.log(`[migrate] library ${u.username}: +${arr.length} from localStorage`);
       }
+      // после миграции удаляем ключ чтобы не тащить мусор - данные теперь в БД
+      try{ localStorage.removeItem(key); }catch{}
     }catch(e){ console.warn("migrate lib error",e); }
   }
   return changed;
 }
 
-async function loadDB(){
-  // 1) try real DB via /api/db
+function hashDB(obj){
   try{
-    const headers = {};
-    const token = localStorage.getItem("flux_token");
-    if(token) headers["Authorization"] = "Bearer " + token;
-    const res = await fetch((CONFIG.API_BASE || "/api") + "/db", {
-      headers,
-      cache: "no-store"
-    });
-    if(res.ok){
-      const data = await res.json();
-      const record = data.record || data;
-      if(record && Array.isArray(record.users) && Array.isArray(record.games)){
-        DB = record;
-        let changed = ensureSuperAdmin();
-        if(ensureDBDefaults()) changed=true;
-        if(migrateLegacyLibraries()) changed=true;
-        if(ensureDBDefaults()) changed=true;
-        localStorage.setItem("flux_db", JSON.stringify(DB));
-        console.log("[FluxHub] Loaded from Real DB (SQLite/PostgreSQL)", DB);
-        if(changed){
-          await saveDB(true);
-        }
-        return DB;
-      }
-    }
-    console.warn("[FluxHub] /api/db load failed", res.status, await res.text().catch(()=>res.statusText));
-  }catch(e){ console.warn("Real DB load error", e); }
+    // быстрый хэш для проверки изменений: длина + кол-во + последние id
+    return JSON.stringify({u: obj.users.length, g: obj.games.length, c: obj.chats.length, lu: obj.users.map(u=>u.id).slice(0,5).join(","), lg: obj.games.map(g=>g.id).slice(0,5).join(",")});
+  }catch{ return String(Date.now()); }
+}
 
-  // 2) fallback localStorage cache
+async function fetchServerDB(){
+  const headers = {};
+  const token = localStorage.getItem("flux_token");
+  if(token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch((CONFIG.API_BASE || "/api") + "/db", {
+    headers,
+    cache: "no-store"
+  });
+  if(!res.ok) throw new Error("HTTP "+res.status+" "+ await res.text().catch(()=>res.statusText));
+  const data = await res.json();
+  const record = data.record || data;
+  if(!record || !Array.isArray(record.users) || !Array.isArray(record.games)) throw new Error("invalid record");
+  return record;
+}
+
+async function loadDB(){
+  // 1) строго пробуем сервер — это источник истины для всех устройств
+  try{
+    const record = await fetchServerDB();
+    DB = record;
+    let changed = ensureSuperAdmin();
+    if(ensureDBDefaults()) changed=true;
+    if(migrateLegacyLibraries()) changed=true;
+    if(ensureDBDefaults()) changed=true;
+    _lastServerHash = hashDB(DB);
+    localStorage.setItem("flux_db", JSON.stringify(DB));
+    console.log("[FluxHub] Loaded from Real DB (SQLite/PostgreSQL)", DB);
+    if(changed){
+      await saveDB(true);
+    }
+    _offlineWarned = false;
+    startAutoSync();
+    return DB;
+  }catch(e){
+    console.warn("[FluxHub] Real DB load failed, using cache/offline", e);
+  }
+
+  // 2) fallback к локальному кэшу — только для чтения, НЕ перезаписываем сервер старыми данными
   const local = localStorage.getItem("flux_db");
   if(local){
     try{
       DB = JSON.parse(local);
-      let changed = ensureSuperAdmin();
-      if(ensureDBDefaults()) changed=true;
-      if(migrateLegacyLibraries()) changed=true;
-      if(ensureDBDefaults()) changed=true;
-      console.log("[FluxHub] Loaded from localStorage cache");
-      if(changed){
-        localStorage.setItem("flux_db", JSON.stringify(DB));
-        saveDB(true);
+      ensureSuperAdmin();
+      ensureDBDefaults();
+      migrateLegacyLibraries();
+      ensureDBDefaults();
+      console.log("[FluxHub] Loaded from localStorage cache (offline mode) — данные могут быть устаревшими, сервер недоступен");
+      if(!_offlineWarned && typeof toast==="function"){
+        toast("Сервер недоступен — показаны кэшированные данные. Проверь что запущен server.py и есть интернет","error");
+        _offlineWarned = true;
       }
+      _lastServerHash = hashDB(DB);
+      startAutoSync();
       return DB;
     }catch{}
   }
+  // 3) совсем нет кэша — создаём демо только для офлайн просмотра, не пушим на сервер пока нет связи
   DB = deepClone(DEFAULT_DATA);
   ensureSuperAdmin();
   ensureDBDefaults();
@@ -246,8 +270,75 @@ async function loadDB(){
   DB.games.forEach(g=>{
     if(!g.createdAt) g.createdAt = Date.now();
   });
-  await saveDB(true);
+  _lastServerHash = hashDB(DB);
+  localStorage.setItem("flux_db", JSON.stringify(DB));
+  console.log("[FluxHub] Created offline default DB");
+  if(typeof toast==="function" && !_offlineWarned){
+    toast("Сервер недоступен — работа в офлайн режиме","error");
+    _offlineWarned=true;
+  }
+  startAutoSync();
+  // не делаем saveDB(true) здесь — не затираем сервер демо-данными если он просто временно недоступен
   return DB;
+}
+
+async function syncFromServer(){
+  try{
+    const record = await fetchServerDB();
+    const newHash = hashDB(record);
+    if(newHash === _lastServerHash && DB) {
+      // нет изменений
+      return false;
+    }
+    // мерджим: сервер — истина
+    DB = record;
+    ensureSuperAdmin();
+    ensureDBDefaults();
+    // мигрируем библиотеки если были локальные
+    if(migrateLegacyLibraries()) {
+      ensureDBDefaults();
+      await saveDB(true);
+    }
+    _lastServerHash = hashDB(DB);
+    localStorage.setItem("flux_db", JSON.stringify(DB));
+    console.log("[FluxHub] Synced from server", DB.users.length+" users", DB.games.length+" games");
+    // обновляем текущий юзер ссылку
+    if(typeof currentUser!=="undefined" && currentUser){
+      const fresh = DB.users.find(u=>u.id===currentUser.id);
+      if(fresh) {
+        // сохраняем ссылку но обновляем поля
+        Object.assign(currentUser, fresh);
+        try{ localStorage.setItem("flux_user", JSON.stringify({id: fresh.id, username: fresh.username})); }catch{}
+        // точнее перезапишем полностью без пароля
+        const safe = {...fresh}; delete safe.password;
+        localStorage.setItem("flux_user", JSON.stringify(safe));
+      }
+    }
+    // перерисовываем UI если загружен
+    if(typeof renderAll==="function") renderAll();
+    else {
+      if(typeof renderStore==="function" && document.getElementById("view-store")?.classList.contains("active")) renderStore();
+      if(typeof updateSocialBadges==="function") updateSocialBadges();
+    }
+    _offlineWarned=false;
+    return true;
+  }catch(e){
+    // сервер недоступен — молчим, ждём следующего опроса
+    console.warn("[sync] server unreachable", e.message);
+    return false;
+  }
+}
+
+function startAutoSync(){
+  if(_syncInterval) return;
+  // опрос каждые 5 секунд — все устройства видят одинаково
+  _syncInterval = setInterval(()=>{ syncFromServer(); }, 5000);
+  // также синхронизируем при возвращении вкладки
+  document.addEventListener("visibilitychange", ()=>{
+    if(document.visibilityState==="visible") syncFromServer();
+  });
+  window.addEventListener("focus", ()=> syncFromServer());
+  window.addEventListener("online", ()=> syncFromServer());
 }
 
 function ensureSuperAdmin(){
@@ -275,6 +366,7 @@ function ensureSuperAdmin(){
 }
 
 async function saveDB(immediate=false){
+  // всегда обновляем кэш
   localStorage.setItem("flux_db", JSON.stringify(DB));
   if(!immediate){
     clearTimeout(saveTimer);
@@ -296,6 +388,38 @@ async function saveToDB(){
     const headers = { "Content-Type":"application/json" };
     const token = localStorage.getItem("flux_token");
     if(token) headers["Authorization"] = "Bearer " + token;
+    // перед сохранением подтянем свежее с сервера чтобы не затереть чужие изменения (last-write-wins защита)
+    try{
+      const fresh = await fetchServerDB();
+      // мерджим: если на сервере больше пользователей/игр чем у нас — значит мы устарели, нужно смерджить
+      // простая стратегия: если свежие данные отличаются, берём их за основу и накатываем наши изменения по id
+      // но для простоты сейчас — если свежий хэш отличается, сначала синхронизируем, потом поверх пишем
+      // Делаем лёгкий мёрдж: сохраняем наши новые игры/юзеры которых нет на сервере
+      if(fresh && fresh.users && fresh.games){
+        const freshIds = new Set(fresh.users.map(u=>u.id));
+        const freshGameIds = new Set(fresh.games.map(g=>g.id));
+        // если у нас есть юзеры/игры которых нет на сервере — они новые, их нужно сохранить
+        // если на сервере есть новые — они уже в fresh, а мы их затрем если просто PUT DB.
+        // Поэтому мерджим свежие + наши новые
+        let needMerge=false;
+        for(const u of DB.users){ if(!freshIds.has(u.id)) { fresh.users.push(u); needMerge=true; } }
+        for(const g of DB.games){ if(!freshGameIds.has(g.id)) { fresh.games.unshift(g); needMerge=true; } }
+        // также свежие чаты
+        if(DB.chats) {
+          const freshChatIds=new Set((fresh.chats||[]).map(c=>c.id));
+          for(const c of DB.chats){ if(!freshChatIds.has(c.id)) { (fresh.chats||(fresh.chats=[])).push(c); needMerge=true; } }
+        }
+        if(needMerge){
+          // обновим DB перед отправкой чтобы включить свежие данные + наши новые
+          DB.users = fresh.users;
+          DB.games = fresh.games;
+          DB.chats = fresh.chats||[];
+          _lastServerHash = hashDB(DB);
+          localStorage.setItem("flux_db", JSON.stringify(DB));
+        }
+      }
+    }catch(e){ /* если не удалось подтянуть — всё равно пробуем сохранить */ console.warn("[save] pre-fetch failed", e.message); }
+
     const res = await fetch((CONFIG.API_BASE || "/api") + "/db", {
       method: "PUT",
       headers,
@@ -304,10 +428,20 @@ async function saveToDB(){
     if(!res.ok) {
       const txt = await res.text().catch(()=>res.statusText);
       console.warn("Real DB save failed", res.status, txt);
+      if(typeof toast==="function") toast("Ошибка сохранения на сервере: "+txt,"error");
+      throw new Error(txt);
     } else {
       console.log("[FluxHub] Saved to Real DB (SQLite/PostgreSQL)");
+      _lastServerHash = hashDB(DB);
+      // после успешного сохранения сразу синхронизируем чтобы другие устройства подтянули
+      setTimeout(()=> syncFromServer(), 500);
     }
-  }catch(e){ console.warn("Real DB save error", e); }
+  }catch(e){
+    console.warn("Real DB save error", e);
+    if(e.message && e.message.includes("Failed to fetch")){
+      if(typeof toast==="function" && !_offlineWarned) toast("Нет связи с сервером — данные сохранены локально, синхронизируются при подключении","error");
+    }
+  }
 }
 
 function uid(prefix="id"){ return prefix+"_"+Math.random().toString(36).slice(2,9)+"_"+Date.now().toString(36) }

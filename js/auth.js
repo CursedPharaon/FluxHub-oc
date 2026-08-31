@@ -86,7 +86,6 @@ async function doLogin(){
   const user = document.getElementById("login-user").value.trim();
   const pass = document.getElementById("login-pass").value;
   if(!user||!pass) return toast("Заполни все поля","error");
-  // 1) пробуем реальную БД через сервер
   try{
     const res = await fetch((CONFIG.API_BASE||"/api")+"/auth/login", {
       method:"POST",
@@ -96,14 +95,14 @@ async function doLogin(){
     const j = await res.json().catch(()=>({}));
     if(res.ok && j.user && j.token){
       localStorage.setItem("flux_token", j.token);
-      // обновим локальный DB из ответа (или перезагрузим)
-      // найдем юзера в DB и синхронизируем, если нет — добавим
+      // синхронизируем полную БД с сервера — истина для всех устройств
+      try{ await syncFromServer(); }catch{}
       let real = DB.users.find(u=>u.id===j.user.id);
       if(!real){
+        // если только что зарегистрированный юзер не попал в DB (редко) — пушим и грузим заново
         DB.users.push(j.user);
         real = j.user;
-        // перезагрузим полный DB для актуальности
-        await loadDB();
+        await syncFromServer();
         real = DB.users.find(u=>u.id===j.user.id) || j.user;
       } else {
         Object.assign(real, j.user);
@@ -113,7 +112,9 @@ async function doLogin(){
         return toast(`Ты забанен ещё ${banTimeLeft(real)} ⛔`,"error");
       }
       currentUser = real;
-      localStorage.setItem("flux_user", JSON.stringify(currentUser));
+      // сохраняем без пароля
+      const safe = {...currentUser}; delete safe.password;
+      localStorage.setItem("flux_user", JSON.stringify(safe));
       closeAuth();
       renderUserArea();
       renderAll();
@@ -121,21 +122,12 @@ async function doLogin(){
       return;
     } else {
       if(j.error) return toast(j.error,"error");
+      return toast(j.error||"Ошибка входа","error");
     }
-  }catch(e){ console.warn("login via API failed, fallback local", e); }
-  // 2) fallback локально (для оффлайна / старых записей)
-  const found = DB.users.find(u=> (u.username===user || u.email===user) && (u.password===pass || u.password===pass));
-  // try hashed compare not possible client-side; fallback plain only
-  if(!found) return toast("Неверный ник/email или пароль","error");
-  if(isBanned(found)){
-    return toast(`Ты забанен ещё ${banTimeLeft(found)} ⛔ Причина: ${found.banReason||'нарушение правил'}`,"error");
+  }catch(e){
+    console.warn("login via API failed", e);
+    return toast("Сервер недоступен — попробуй позже. Данные должны грузиться с сервера чтобы быть одинаковыми на всех устройствах.","error");
   }
-  currentUser = found;
-  localStorage.setItem("flux_user", JSON.stringify(currentUser));
-  closeAuth();
-  renderUserArea();
-  renderAll();
-  toast(`Привет, ${currentUser.username}! 👋`,"success");
 }
 
 async function doRegister(){
@@ -149,7 +141,6 @@ async function doRegister(){
   if(p!==p2) return toast("Пароли не совпадают","error");
   if(u.toLowerCase()==="cursed_dev") return toast("Этот ник зарезервирован 👑","error");
 
-  // пробуем сервер
   try{
     const res = await fetch((CONFIG.API_BASE||"/api")+"/auth/register", {
       method:"POST",
@@ -159,50 +150,30 @@ async function doRegister(){
     const j = await res.json().catch(()=>({}));
     if(res.ok && j.user && j.token){
       localStorage.setItem("flux_token", j.token);
-      DB.users.push(j.user);
-      currentUser = DB.users.find(x=>x.id===j.user.id);
-      localStorage.setItem("flux_user", JSON.stringify(currentUser));
-      // также обновим локальный кэш через save? Но регистрация уже в БД, подтянем
-      await loadDB();
+      // сервер уже создал юзера — синхронизируем
+      try{ await syncFromServer(); }catch{}
+      // если sync не успел, добавим локально временно
+      if(!DB.users.find(x=>x.id===j.user.id)) DB.users.push(j.user);
+      currentUser = DB.users.find(x=>x.id===j.user.id) || j.user;
+      const safe = {...currentUser}; delete safe.password;
+      localStorage.setItem("flux_user", JSON.stringify(safe));
+      await syncFromServer();
       currentUser = DB.users.find(x=>x.id===j.user.id) || currentUser;
-      localStorage.setItem("flux_user", JSON.stringify(currentUser));
+      const safe2 = {...currentUser}; delete safe2.password;
+      localStorage.setItem("flux_user", JSON.stringify(safe2));
       closeAuth();
       renderUserArea();
       renderAll();
-      toast("Аккаунт создан! Добро пожаловать в FluxHub 🚀","success");
+      toast("Аккаунт создан! Добро пожаловать в FluxHub 🚀 Теперь ты виден на всех устройствах","success");
       return;
     } else {
       if(j.error) return toast(j.error,"error");
+      return toast(j.error||"Ошибка регистрации","error");
     }
-  }catch(err){ console.warn("register via API failed, fallback", err); }
-  // fallback локально (если сервер недоступен — создадим локально и попытаемся сохранить)
-  if(DB.users.some(x=>x.username.toLowerCase()===u.toLowerCase())) return toast("Ник уже занят","error");
-  if(DB.users.some(x=>x.email.toLowerCase()===e.toLowerCase())) return toast("Email уже используется","error");
-  const newUser = {
-    id: uid("u"),
-    username: u,
-    email: e,
-    password: p,
-    avatar: `https://i.pravatar.cc/200?u=${encodeURIComponent(u)}`,
-    role: "user",
-    bannedUntil: null,
-    createdAt: Date.now(),
-    bio: "Новый игрок FluxHub 🎮",
-    friends: [],
-    friendRequestsIncoming: [],
-    friendRequestsOutgoing: [],
-    privacy: { ...DEFAULT_PRIVACY },
-    settings: { ...DEFAULT_SETTINGS },
-    library: []
-  };
-  DB.users.push(newUser);
-  await saveDB(true);
-  currentUser = newUser;
-  localStorage.setItem("flux_user", JSON.stringify(currentUser));
-  closeAuth();
-  renderUserArea();
-  renderAll();
-  toast("Аккаунт создан! Добро пожаловать в FluxHub 🚀","success");
+  }catch(err){
+    console.warn("register via API failed", err);
+    return toast("Сервер недоступен — регистрация только через сервер, чтобы аккаунт был виден всем","error");
+  }
 }
 
 function logout(){
@@ -361,14 +332,15 @@ function handleAvatarChange(input){
   r.readAsDataURL(f);
 }
 
-function editProfile(){
+async function editProfile(){
   const bio = prompt("Новый статус / био:", currentUser.bio||"");
   if(bio===null) return;
   currentUser.bio = bio.slice(0,120);
   const idx = DB.users.findIndex(x=>x.id===currentUser.id);
   DB.users[idx]=currentUser;
-  saveDB();
-  localStorage.setItem("flux_user", JSON.stringify(currentUser));
+  const safe={...currentUser}; delete safe.password;
+  localStorage.setItem("flux_user", JSON.stringify(safe));
+  await saveDB(true);
   openProfile(currentUser.id);
   toast("Профиль обновлён","success");
 }

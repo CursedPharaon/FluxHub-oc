@@ -27,8 +27,12 @@ import os
 import sys
 import time
 import sqlite3
+import threading
 import urllib.parse
 from urllib.parse import urlparse
+
+# Глобальный лок для сериализации сохранений — чтобы не терять данные при конкурентных PUT с разных устройств
+_SAVE_LOCK = threading.Lock()
 
 # ===== CONFIG =====
 SUPERADMIN = "cursed_dev"
@@ -559,84 +563,100 @@ def save_record(record):
     for u in users:
         if "password" in u and u["password"] and needs_rehash(u["password"]):
             u["password"] = hash_password(u["password"])
-    # replace tables in transaction
-    if IS_POSTGRES:
-        conn = get_conn()
-        with conn.cursor() as cur:
-            cur.execute("BEGIN")
-            try:
-                cur.execute("DELETE FROM chats")
-                cur.execute("DELETE FROM games")
-                cur.execute("DELETE FROM users")
-                for u in users:
-                    cur.execute("""
-                        INSERT INTO users (id, username, email, password, avatar, role, banned_until, created_at, bio, friends, friend_requests_incoming, friend_requests_outgoing, privacy, settings, library)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """, (
-                        u.get("id"), u.get("username"), u.get("email"), u.get("password"), u.get("avatar"), u.get("role"),
-                        u.get("bannedUntil"), u.get("createdAt"), u.get("bio"),
-                        json.dumps(u.get("friends", [])), json.dumps(u.get("friendRequestsIncoming", [])),
-                        json.dumps(u.get("friendRequestsOutgoing", [])), json.dumps(u.get("privacy", {})), json.dumps(u.get("settings", {})), json.dumps(u.get("library", []))
-                    ))
-                for g in games:
-                    cur.execute("""
-                        INSERT INTO games (id, title, description, category, tags, author, author_id, logo, screenshots, archive_name, archive_ext, archive_entry, files, file_list, archive_raw, archive_size, html_code, css_code, js_code, status, created_at, plays, likes, rating, comments, reject_reason)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    """, (
-                        g.get("id"), g.get("title"), g.get("description"), g.get("category"), json.dumps(g.get("tags", [])),
-                        g.get("author"), g.get("authorId"), g.get("logo"), json.dumps(g.get("screenshots", [])),
-                        g.get("archiveName"), g.get("archiveExt"), g.get("archiveEntry"), json.dumps(g.get("files")) if g.get("files") else None,
-                        json.dumps(g.get("fileList", [])), g.get("archiveRaw"), g.get("archiveSize", 0),
-                        g.get("htmlCode"), g.get("cssCode"), g.get("jsCode"), g.get("status"), g.get("createdAt"), g.get("plays",0),
-                        json.dumps(g.get("likes", [])), g.get("rating",0), json.dumps(g.get("comments",[])), g.get("rejectReason","")
-                    ))
-                for c in chats:
-                    cur.execute("""
-                        INSERT INTO chats (id, participants, messages, created_at) VALUES (%s,%s,%s,%s)
-                    """, (c.get("id"), json.dumps(c.get("participants",[])), json.dumps(c.get("messages",[])), c.get("createdAt", int(time.time()*1000))))
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                raise e
-    else:
-        conn = get_conn()
-        cur = conn.cursor()
-        try:
-            cur.execute("BEGIN")
-            cur.execute("DELETE FROM chats")
-            cur.execute("DELETE FROM games")
-            cur.execute("DELETE FROM users")
-            for u in users:
-                cur.execute("""
-                    INSERT INTO users (id, username, email, password, avatar, role, banned_until, created_at, bio, friends, friend_requests_incoming, friend_requests_outgoing, privacy, settings, library)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (
-                    u.get("id"), u.get("username"), u.get("email"), u.get("password"), u.get("avatar"), u.get("role"),
-                    u.get("bannedUntil"), u.get("createdAt"), u.get("bio"),
-                    json.dumps(u.get("friends", [])), json.dumps(u.get("friendRequestsIncoming", [])),
-                    json.dumps(u.get("friendRequestsOutgoing", [])), json.dumps(u.get("privacy", {})), json.dumps(u.get("settings", {})), json.dumps(u.get("library", []))
-                ))
-            for g in games:
-                cur.execute("""
-                    INSERT INTO games (id, title, description, category, tags, author, author_id, logo, screenshots, archive_name, archive_ext, archive_entry, files, file_list, archive_raw, archive_size, html_code, css_code, js_code, status, created_at, plays, likes, rating, comments, reject_reason)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """, (
-                    g.get("id"), g.get("title"), g.get("description"), g.get("category"), json.dumps(g.get("tags", [])),
-                    g.get("author"), g.get("authorId"), g.get("logo"), json.dumps(g.get("screenshots", [])),
-                    g.get("archiveName"), g.get("archiveExt"), g.get("archiveEntry"), json.dumps(g.get("files")) if g.get("files") else None,
-                    json.dumps(g.get("fileList", [])), g.get("archiveRaw"), g.get("archiveSize", 0),
-                    g.get("htmlCode"), g.get("cssCode"), g.get("jsCode"), g.get("status"), g.get("createdAt"), g.get("plays",0),
-                    json.dumps(g.get("likes", [])), g.get("rating",0), json.dumps(g.get("comments",[])), g.get("rejectReason","")
-                ))
-            for c in chats:
-                cur.execute("""
-                    INSERT INTO chats (id, participants, messages, created_at) VALUES (?,?,?,?)
-                """, (c.get("id"), json.dumps(c.get("participants",[])), json.dumps(c.get("messages",[])), c.get("createdAt", int(time.time()*1000))))
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            print(f"[DB save_record error] {e}")
-            raise e
+    # Сериализуем сохранения чтобы concurrent PUT с разных устройств не затирали друг друга
+    with _SAVE_LOCK:
+        # replace tables in transaction
+        if IS_POSTGRES:
+            conn = get_conn()
+            with conn.cursor() as cur:
+                cur.execute("BEGIN")
+                try:
+                    cur.execute("DELETE FROM chats")
+                    cur.execute("DELETE FROM games")
+                    cur.execute("DELETE FROM users")
+                    for u in users:
+                        cur.execute("""
+                            INSERT INTO users (id, username, email, password, avatar, role, banned_until, created_at, bio, friends, friend_requests_incoming, friend_requests_outgoing, privacy, settings, library)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """, (
+                            u.get("id"), u.get("username"), u.get("email"), u.get("password"), u.get("avatar"), u.get("role"),
+                            u.get("bannedUntil"), u.get("createdAt"), u.get("bio"),
+                            json.dumps(u.get("friends", [])), json.dumps(u.get("friendRequestsIncoming", [])),
+                            json.dumps(u.get("friendRequestsOutgoing", [])), json.dumps(u.get("privacy", {})), json.dumps(u.get("settings", {})), json.dumps(u.get("library", []))
+                        ))
+                    for g in games:
+                        cur.execute("""
+                            INSERT INTO games (id, title, description, category, tags, author, author_id, logo, screenshots, archive_name, archive_ext, archive_entry, files, file_list, archive_raw, archive_size, html_code, css_code, js_code, status, created_at, plays, likes, rating, comments, reject_reason)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """, (
+                            g.get("id"), g.get("title"), g.get("description"), g.get("category"), json.dumps(g.get("tags", [])),
+                            g.get("author"), g.get("authorId"), g.get("logo"), json.dumps(g.get("screenshots", [])),
+                            g.get("archiveName"), g.get("archiveExt"), g.get("archiveEntry"), json.dumps(g.get("files")) if g.get("files") else None,
+                            json.dumps(g.get("fileList", [])), g.get("archiveRaw"), g.get("archiveSize", 0),
+                            g.get("htmlCode"), g.get("cssCode"), g.get("jsCode"), g.get("status"), g.get("createdAt"), g.get("plays",0),
+                            json.dumps(g.get("likes", [])), g.get("rating",0), json.dumps(g.get("comments",[])), g.get("rejectReason","")
+                        ))
+                    for c in chats:
+                        cur.execute("""
+                            INSERT INTO chats (id, participants, messages, created_at) VALUES (%s,%s,%s,%s)
+                        """, (c.get("id"), json.dumps(c.get("participants",[])), json.dumps(c.get("messages",[])), c.get("createdAt", int(time.time()*1000))))
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    raise e
+        else:
+            # SQLite: retry on database is locked
+            for attempt in range(5):
+                try:
+                    conn = get_conn()
+                    cur = conn.cursor()
+                    cur.execute("BEGIN IMMEDIATE")
+                    cur.execute("DELETE FROM chats")
+                    cur.execute("DELETE FROM games")
+                    cur.execute("DELETE FROM users")
+                    for u in users:
+                        cur.execute("""
+                            INSERT INTO users (id, username, email, password, avatar, role, banned_until, created_at, bio, friends, friend_requests_incoming, friend_requests_outgoing, privacy, settings, library)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """, (
+                            u.get("id"), u.get("username"), u.get("email"), u.get("password"), u.get("avatar"), u.get("role"),
+                            u.get("bannedUntil"), u.get("createdAt"), u.get("bio"),
+                            json.dumps(u.get("friends", [])), json.dumps(u.get("friendRequestsIncoming", [])),
+                            json.dumps(u.get("friendRequestsOutgoing", [])), json.dumps(u.get("privacy", {})), json.dumps(u.get("settings", {})), json.dumps(u.get("library", []))
+                        ))
+                    for g in games:
+                        cur.execute("""
+                            INSERT INTO games (id, title, description, category, tags, author, author_id, logo, screenshots, archive_name, archive_ext, archive_entry, files, file_list, archive_raw, archive_size, html_code, css_code, js_code, status, created_at, plays, likes, rating, comments, reject_reason)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        """, (
+                            g.get("id"), g.get("title"), g.get("description"), g.get("category"), json.dumps(g.get("tags", [])),
+                            g.get("author"), g.get("authorId"), g.get("logo"), json.dumps(g.get("screenshots", [])),
+                            g.get("archiveName"), g.get("archiveExt"), g.get("archiveEntry"), json.dumps(g.get("files")) if g.get("files") else None,
+                            json.dumps(g.get("fileList", [])), g.get("archiveRaw"), g.get("archiveSize", 0),
+                            g.get("htmlCode"), g.get("cssCode"), g.get("jsCode"), g.get("status"), g.get("createdAt"), g.get("plays",0),
+                            json.dumps(g.get("likes", [])), g.get("rating",0), json.dumps(g.get("comments",[])), g.get("rejectReason","")
+                        ))
+                    for c in chats:
+                        cur.execute("""
+                            INSERT INTO chats (id, participants, messages, created_at) VALUES (?,?,?,?)
+                        """, (c.get("id"), json.dumps(c.get("participants",[])), json.dumps(c.get("messages",[])), c.get("createdAt", int(time.time()*1000))))
+                    conn.commit()
+                    break
+                except sqlite3.OperationalError as e:
+                    try:
+                        conn.rollback()
+                    except: pass
+                    if "locked" in str(e).lower() and attempt < 4:
+                        time.sleep(0.1 * (attempt+1))
+                        continue
+                    print(f"[DB save_record error] {e}")
+                    raise e
+                except Exception as e:
+                    try:
+                        conn.rollback()
+                    except: pass
+                    print(f"[DB save_record error] {e}")
+                    raise e
 
 # ===== HTTP Handler =====
 class FluxHandler(http.server.SimpleHTTPRequestHandler):
