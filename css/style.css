@@ -15,12 +15,21 @@
   --muted:#8b93b8;
   --radius:16px;
 }
+html{
+  overscroll-behavior-y:none;
+  -webkit-text-size-adjust:100%;
+  text-size-adjust:100%;
+  touch-action:manipulation;
+}
 body{
   background:var(--bg);
   color:var(--text);
   font-family:'Inter',system-ui,sans-serif;
   overflow-x:hidden;
   min-height:100vh;
+  overscroll-behavior-y:none;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
 }
 a{color:var(--accent);text-decoration:none}
 .hidden{display:none!important}
@@ -462,6 +471,15 @@ a{color:var(--accent);text-decoration:none}
   .mobile-drawer{display:none!important}
   .drawer-overlay{display:none!important}
   .bottom-nav{display:none!important}
+}
+/* prevent auto-zoom on focus (iOS) and disable double-tap zoom */
+input, textarea, select, button{
+  touch-action:manipulation;
+}
+@media(max-width:768px){
+  input, textarea, select{
+    font-size:16px !important;
+  }
 }
 /* improve touch targets */
 @media(pointer:coarse){
