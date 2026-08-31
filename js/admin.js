@@ -43,7 +43,7 @@ async function moderate(id, status){
   if(!g) return;
   g.status=status;
   if(status==="rejected") g.rejectReason = g.rejectReason || "Отклонено модератором";
-  await saveDB();
+  await saveDB(true);
   toast(status==="approved" ? `Игра "${g.title}" одобрена ✅` : "Игра отклонена","success");
   renderAll();
   renderAdminMod();
@@ -103,7 +103,7 @@ async function setRole(userId, role){
   if(u.username===CONFIG.SUPERADMIN) return toast("cursed_dev всегда superadmin 👑","error");
   // only superadmin can give admin? But spec says all admins can — allow
   u.role=role;
-  await saveDB();
+  await saveDB(true);
   toast(`${u.username} теперь ${role}`,"success");
   renderAdminUsers();
   renderUserArea();
@@ -123,14 +123,14 @@ function banPrompt(userId){
   if(reason===null) return;
   u.bannedUntil = Date.now() + hours*3600000;
   u.banReason = reason;
-  saveDB();
+  saveDB(true);
   toast(`${u.username} забанен на ${hours}ч`,"success");
   renderAdminUsers();
 }
 async function unban(userId){
   const u=DB.users.find(x=>x.id===userId);
   u.bannedUntil=null; u.banReason="";
-  await saveDB();
+  await saveDB(true);
   toast(`${u.username} разбанен`,"success");
   renderAdminUsers();
 }
@@ -169,7 +169,7 @@ async function deleteGame(id){
   if(currentUser && Array.isArray(currentUser.library)){
     currentUser.library=currentUser.library.filter(gid=>gid!==id);
   }
-  await saveDB();
+  await saveDB(true);
   toast("Игра удалена","success");
   renderAll();
   renderAdminGames();

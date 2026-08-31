@@ -66,7 +66,7 @@ async function sendFriendRequest(toId){
   // dedup
   currentUser.friendRequestsOutgoing=[...new Set(currentUser.friendRequestsOutgoing)];
   target.friendRequestsIncoming=[...new Set(target.friendRequestsIncoming)];
-  await saveDB();
+  await saveDB(true);
   renderAllSocial();
   if(target.settings?.notifyFriendRequest) toast(`Заявка отправлена ${target.username} 👋`,"success");
   else toast("Заявка отправлена","success");
@@ -78,7 +78,7 @@ async function cancelFriendRequest(toId){
   if(!target) return;
   currentUser.friendRequestsOutgoing=currentUser.friendRequestsOutgoing.filter(id=>id!==toId);
   target.friendRequestsIncoming=target.friendRequestsIncoming.filter(id=>id!==currentUser.id);
-  await saveDB();
+  await saveDB(true);
   renderAllSocial();
   toast("Заявка отменена","info");
 }
@@ -98,7 +98,7 @@ async function acceptFriendRequest(fromId){
   if(!currentUser.friends.includes(fromId)) currentUser.friends.push(fromId);
   if(!fromUser.friends.includes(currentUser.id)) fromUser.friends.push(currentUser.id);
   // ensure chats not needed
-  await saveDB();
+  await saveDB(true);
   renderAllSocial();
   toast(`Вы теперь друзья с ${fromUser.username} 🎉`,"success");
 }
@@ -109,7 +109,7 @@ async function declineFriendRequest(fromId){
   if(!fromUser) return;
   currentUser.friendRequestsIncoming=currentUser.friendRequestsIncoming.filter(id=>id!==fromId);
   fromUser.friendRequestsOutgoing=fromUser.friendRequestsOutgoing.filter(id=>id!==currentUser.id);
-  await saveDB();
+  await saveDB(true);
   renderAllSocial();
   toast("Заявка отклонена","info");
 }
@@ -121,7 +121,7 @@ async function removeFriend(friendId){
   currentUser.friends=currentUser.friends.filter(id=>id!==friendId);
   if(friend) friend.friends=friend.friends.filter(id=>id!==currentUser.id);
   // also remove chat? keep history but maybe keep
-  await saveDB();
+  await saveDB(true);
   renderAllSocial();
   toast(friend?`${friend.username} удалён из друзей`:"Удалён","info");
 }
@@ -172,7 +172,7 @@ async function sendMessage(toId, text){
   chat.messages.push(msg);
   // limit messages per chat to 500
   if(chat.messages.length>500) chat.messages=chat.messages.slice(-500);
-  await saveDB();
+  await saveDB(true);
   // render if chat open
   if(currentChatId===chat.id) renderChatMessages(chat.id);
   renderAllSocial();
@@ -190,7 +190,7 @@ async function markChatRead(chatId){
       if(!m.readBy.includes(currentUser.id)){ m.readBy.push(currentUser.id); changed=true; }
     }
   });
-  if(changed) await saveDB();
+  if(changed) await saveDB(true);
 }
 
 let currentChatId = null;
@@ -585,7 +585,7 @@ async function updatePrivacy(key, value){
   currentUser.privacy[key]=value;
   const idx=DB.users.findIndex(u=>u.id===currentUser.id);
   if(idx>=0) DB.users[idx]=currentUser;
-  await saveDB();
+  await saveDB(true);
   toast(`Приватность обновлена: ${key} = ${privacyLabel(value)}`,"success");
   renderSettings();
   renderAllSocial();
@@ -597,7 +597,7 @@ async function updateSetting(key, value){
   currentUser.settings[key]=value;
   const idx=DB.users.findIndex(u=>u.id===currentUser.id);
   if(idx>=0) DB.users[idx]=currentUser;
-  await saveDB();
+  await saveDB(true);
   toast("Настройки сохранены","success");
   renderSettings();
 }
@@ -609,7 +609,7 @@ async function saveBioSetting(){
   const idx=DB.users.findIndex(u=>u.id===currentUser.id);
   if(idx>=0) DB.users[idx]=currentUser;
   localStorage.setItem("flux_user", JSON.stringify(currentUser));
-  await saveDB();
+  await saveDB(true);
   toast("Био обновлено","success");
   renderUserArea();
   renderSettings();

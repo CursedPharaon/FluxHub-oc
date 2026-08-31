@@ -255,7 +255,7 @@ async function publishGame(){
     rejectReason: ""
   };
   DB.games.unshift(game);
-  await saveDB();
+  await saveDB(true);
   // reset form
   document.getElementById("pub-title").value="";
   document.getElementById("pub-desc").value="";
@@ -403,7 +403,7 @@ function getLibrary(){
           const merged=[...new Set([...real.library, ...arr])];
           if(merged.length!==real.library.length){
             real.library=merged;
-            saveDB();
+            saveDB(true);
           }
         }
       }
@@ -427,7 +427,7 @@ function addToLibrary(gameId){
     // для обратной совместимости продублируем в localStorage (не является источником истины)
     try{ localStorage.setItem("flux_lib_"+currentUser.id, JSON.stringify(lib)); }catch{}
     // сохраняем в базу данных — теперь будет видно на всех устройствах после логина
-    saveDB();
+    saveDB(true);
     toast("Добавлено в библиотеку 📚","success");
     renderLibrary();
     renderStore();
@@ -441,7 +441,7 @@ function removeFromLibrary(gameId){
   if(real) real.library = lib;
   if(currentUser) currentUser.library = lib;
   try{ localStorage.setItem("flux_lib_"+currentUser.id, JSON.stringify(lib)); }catch{}
-  saveDB();
+  saveDB(true);
   renderLibrary();
   renderStore();
   toast("Удалено из библиотеки","info");
@@ -532,7 +532,7 @@ function toggleLike(id){
   const idx=g.likes.indexOf(currentUser.id);
   if(idx>=0) g.likes.splice(idx,1);
   else g.likes.push(currentUser.id);
-  saveDB();
+  saveDB(true);
   openGame(id);
   renderStore();
 }
@@ -545,7 +545,7 @@ function addComment(id){
   if(!text) return;
   const g=DB.games.find(x=>x.id===id);
   g.comments.push({user:currentUser.username, text, at:Date.now()});
-  saveDB();
+  saveDB(true);
   openGame(id);
   toast("Комментарий добавлен","success");
 }
@@ -637,7 +637,7 @@ function playGame(id){
     toast("Архив ."+(g.archiveExt||"rar")+" нельзя запустить — нужен .zip","error");
   }
   g.plays++;
-  saveDB();
+  saveDB(true);
   document.getElementById("play-title").textContent = g.title;
   const iframe=document.getElementById("play-iframe");
   iframe.srcdoc = buildGameSrc(g);
