@@ -157,7 +157,7 @@ function openProfile(userId){
       ${isMe?`<div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-ghost small" onclick="editProfile()"><i class="fa-solid fa-pen"></i> Редактировать био</button>
         <button class="btn btn-primary small" onclick="triggerAvatarPicker()"><i class="fa-solid fa-image"></i> Сменить аватарку</button>
-        <input type="file" id="avatar-input" accept="image/*" class="hidden" onchange="handleAvatarChange(this)">
+        <input type="file" id="avatar-input" accept=".png,.jpg,.jpeg,image/png,image/jpeg" class="hidden" onchange="handleAvatarChange(this)">
       </div>`:''}
     </div>
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
@@ -172,11 +172,11 @@ function triggerAvatarPicker(){
   if(inp){
     inp.click();
   } else {
-    // fallback: create temporary input if profile not rendered
+    // fallback: create temporary input if profile not rendered (desktop explorer / mobile gallery)
     if(!currentUser) return toast("Войди чтобы сменить аватарку","error");
     const tmp = document.createElement('input');
     tmp.type='file';
-    tmp.accept='image/*';
+    tmp.accept='.png,.jpg,.jpeg,image/png,image/jpeg';
     tmp.style.display='none';
     tmp.onchange = ()=> handleAvatarChange(tmp);
     document.body.appendChild(tmp);
@@ -189,8 +189,15 @@ function handleAvatarChange(input){
   const f = input.files && input.files[0];
   if(!f) return;
   if(!currentUser) return toast("Войди чтобы сменить аватарку","error");
-  if(!f.type.startsWith("image/")) {
-    toast("Выбери изображение (PNG/JPG/WEBP)","error");
+  // strictly PNG/JPEG as requested; allow detection by MIME or file extension fallback (mobile may give empty MIME)
+  const allowedTypes = ["image/png","image/jpeg","image/jpg"];
+  const ext = f.name ? f.name.split(".").pop().toLowerCase() : "";
+  const allowedExts = ["png","jpg","jpeg"];
+  const typeOk = f.type ? allowedTypes.includes(f.type.toLowerCase()) : false;
+  const extOk = allowedExts.includes(ext);
+  const isValidType = typeOk || extOk;
+  if(!isValidType) {
+    toast("Выбери PNG или JPEG файл","error");
     input.value="";
     return;
   }
@@ -208,6 +215,11 @@ function handleAvatarChange(input){
     const dataUrl = e.target.result;
     if(typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')){
       toast("Файл не является изображением","error");
+      input.value="";
+      return;
+    }
+    if(!dataUrl.startsWith('data:image/png') && !dataUrl.startsWith('data:image/jpeg')){
+      toast("Выбери PNG или JPEG файл","error");
       input.value="";
       return;
     }
