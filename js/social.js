@@ -220,26 +220,46 @@ function renderAllSocial(){
 }
 
 function updateSocialBadges(){
+  const syncBadge=(id, val)=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    const isBottom = id.endsWith("-b");
+    if(val>0){
+      el.textContent = val>99?"99+":val;
+      el.classList.remove("hidden");
+      if(isBottom) el.style.display="grid";
+    } else {
+      el.textContent="0";
+      el.classList.add("hidden");
+    }
+  };
   if(!currentUser){
-    const fc=document.getElementById("friends-count");
-    const cc=document.getElementById("chat-count");
-    if(fc){ fc.textContent="0"; fc.classList.add("hidden"); }
-    if(cc){ cc.textContent="0"; cc.classList.add("hidden"); }
+    ["friends-count","friends-count-m","friends-count-b"].forEach(id=>syncBadge(id,0));
+    ["chat-count","chat-count-m","chat-count-b"].forEach(id=>syncBadge(id,0));
+    const lib=document.getElementById("lib-count-b");
+    if(lib) lib.textContent="0";
     return;
   }
   const incoming = currentUser.friendRequestsIncoming?.length||0;
   const unread = getUnreadCount(currentUser.id);
-  const fc=document.getElementById("friends-count");
-  if(fc){
-    if(incoming>0){ fc.textContent=incoming; fc.classList.remove("hidden"); }
-    else { fc.classList.add("hidden"); }
-  }
-  const cc=document.getElementById("chat-count");
-  if(cc){
-    if(unread>0){ cc.textContent=unread>99?"99+":unread; cc.classList.remove("hidden"); fc?.classList; }
-    else cc.classList.add("hidden");
-  }
-  // also update title?
+  const libCount = (typeof getLibrary==="function" ? getLibrary().length : 0);
+  ["friends-count","friends-count-m","friends-count-b"].forEach(id=>syncBadge(id,incoming));
+  ["chat-count","chat-count-m","chat-count-b"].forEach(id=>syncBadge(id,unread));
+  const libEls=["lib-count","lib-count-m","lib-count-b"];
+  libEls.forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.textContent=libCount;
+  });
+  const modPending = (typeof DB!=="undefined" && DB.games) ? DB.games.filter(g=>g.status==="pending").length : 0;
+  const modIds=["mod-count","mod-count-m"];
+  modIds.forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){
+      el.textContent=modPending;
+      el.style.display = modPending? "inline-block":"none";
+      if(modPending) el.classList.remove("hidden");
+    }
+  });
 }
 
 // ===== RENDER FRIENDS VIEW =====

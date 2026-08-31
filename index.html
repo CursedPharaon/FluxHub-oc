@@ -16,13 +16,14 @@
 <!-- HEADER -->
 <header class="header">
   <div class="header-inner">
+    <button id="burger" class="burger" aria-label="Меню" onclick="toggleDrawer()"><i class="fa-solid fa-bars"></i></button>
     <a class="logo" onclick="router('store')">
       <div class="logo-icon"><i class="fa-solid fa-cube"></i></div>
       <span class="logo-text">Flux<span>Hub</span></span>
       <span class="logo-badge">BETA</span>
     </a>
 
-    <nav class="nav">
+    <nav class="nav" id="desktop-nav">
       <button data-view="store" class="nav-btn active" onclick="router('store')"><i class="fa-solid fa-store"></i> Магазин</button>
       <button data-view="library" class="nav-btn" onclick="router('library')"><i class="fa-solid fa-layer-group"></i> Библиотека <span id="lib-count" class="count">0</span></button>
       <button data-view="friends" class="nav-btn" onclick="router('friends')"><i class="fa-solid fa-user-group"></i> Друзья <span id="friends-count" class="count warn hidden">0</span></button>
@@ -33,14 +34,41 @@
     </nav>
 
     <div class="header-right">
-      <div class="search-box">
+      <button class="icon-btn mobile-only" id="search-toggle" aria-label="Поиск" onclick="toggleMobileSearch()"><i class="fa-solid fa-magnifying-glass"></i></button>
+      <div class="search-box" id="header-search">
         <i class="fa-solid fa-magnifying-glass"></i>
         <input id="search" placeholder="Поиск игр, жанров, авторов..." oninput="onSearch(this.value)">
       </div>
       <div id="user-area"></div>
     </div>
   </div>
+  <!-- mobile expanding search -->
+  <div id="mobile-search" class="mobile-search">
+    <i class="fa-solid fa-magnifying-glass"></i>
+    <input id="search-mobile" placeholder="Поиск игр..." oninput="onSearch(this.value);document.getElementById('search').value=this.value">
+    <button class="icon-btn" onclick="toggleMobileSearch(false)"><i class="fa-solid fa-xmark"></i></button>
+  </div>
 </header>
+<!-- mobile drawer -->
+<div id="drawer-overlay" class="drawer-overlay" onclick="toggleDrawer(false)"></div>
+<aside id="mobile-drawer" class="mobile-drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="logo" onclick="router('store');toggleDrawer(false)"><div class="logo-icon"><i class="fa-solid fa-cube"></i></div><span class="logo-text">Flux<span>Hub</span></span></div>
+    <button class="icon-btn" onclick="toggleDrawer(false)"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <nav class="drawer-nav">
+    <button data-view="store" class="drawer-btn active" onclick="router('store');toggleDrawer(false)"><i class="fa-solid fa-store"></i> Магазин</button>
+    <button data-view="library" class="drawer-btn" onclick="router('library');toggleDrawer(false)"><i class="fa-solid fa-layer-group"></i> Библиотека <span id="lib-count-m" class="count">0</span></button>
+    <button data-view="friends" class="drawer-btn" onclick="router('friends');toggleDrawer(false)"><i class="fa-solid fa-user-group"></i> Друзья <span id="friends-count-m" class="count warn hidden">0</span></button>
+    <button data-view="chat" class="drawer-btn" onclick="router('chat');toggleDrawer(false)"><i class="fa-solid fa-comments"></i> Чаты <span id="chat-count-m" class="count warn hidden">0</span></button>
+    <button data-view="publish" class="drawer-btn" onclick="router('publish');toggleDrawer(false)"><i class="fa-solid fa-cloud-arrow-up"></i> Опубликовать</button>
+    <button id="nav-admin-m" data-view="admin" class="drawer-btn admin-only hidden" onclick="router('admin');toggleDrawer(false)"><i class="fa-solid fa-shield-halved"></i> Админка <span id="mod-count-m" class="count warn">0</span></button>
+    <button data-view="settings" class="drawer-btn" onclick="router('settings');toggleDrawer(false)"><i class="fa-solid fa-gear"></i> Настройки</button>
+  </nav>
+  <div class="drawer-foot">
+    <button class="btn btn-ghost small" style="width:100%" onclick="toggleDrawer(false);router('store')"><i class="fa-solid fa-house"></i> На главную</button>
+  </div>
+</aside>
 
 <!-- HERO -->
 <section id="hero" class="hero">
@@ -283,6 +311,15 @@
     <iframe id="play-iframe" sandbox="allow-scripts allow-same-origin allow-pointer-lock"></iframe>
   </div>
 </div>
+
+<!-- bottom nav — только на телефонах -->
+<nav id="bottom-nav" class="bottom-nav" aria-label="Мобильная навигация">
+  <button data-view="store" class="bnav-btn active" onclick="router('store')"><i class="fa-solid fa-store"></i><span>Магазин</span></button>
+  <button data-view="library" class="bnav-btn" onclick="router('library')"><i class="fa-solid fa-layer-group"></i><span>Библио</span><em id="lib-count-b" class="bnav-count">0</em></button>
+  <button data-view="friends" class="bnav-btn" onclick="router('friends')"><i class="fa-solid fa-user-group"></i><span>Друзья</span><em id="friends-count-b" class="bnav-count hidden">0</em></button>
+  <button data-view="chat" class="bnav-btn" onclick="router('chat')"><i class="fa-solid fa-comments"></i><span>Чаты</span><em id="chat-count-b" class="bnav-count hidden">0</em></button>
+  <button data-view="publish" class="bnav-btn" onclick="router('publish')"><i class="fa-solid fa-cloud-arrow-up"></i><span>Плюс</span></button>
+</nav>
 
 <footer class="footer">
   <div class="footer-inner">

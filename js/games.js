@@ -342,11 +342,14 @@ function renderStore(){
 
   document.getElementById("stat-games").textContent = DB.games.filter(g=>g.status==="approved").length;
   document.getElementById("stat-users").textContent = DB.users.length;
-  document.getElementById("lib-count").textContent = currentUser ? getLibrary().length : 0;
+  const libLen = currentUser ? getLibrary().length : 0;
+  ["lib-count","lib-count-m","lib-count-b"].forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent=libLen; });
   const pending = DB.games.filter(g=>g.status==="pending").length;
-  document.getElementById("mod-count").textContent = pending;
+  ["mod-count","mod-count-m"].forEach(id=>{ const el=document.getElementById(id); if(el){ el.textContent=pending; el.style.display=pending?"inline-block":"none"; }});
   document.getElementById("admin-pending").textContent = pending;
-  document.getElementById("mod-count").style.display = pending? "inline-block":"none";
+  // also sync mobile search mirrors
+  const s=document.getElementById("search"); const sm=document.getElementById("search-mobile");
+  if(s && sm && document.activeElement!==sm) sm.value=s.value;
 }
 
 function cardHtml(g){
@@ -374,7 +377,15 @@ function cardHtml(g){
 
 function setCat(c){ currentCategory=c; renderStore(); }
 function setSort(s){ currentSort=s; renderStore(); }
-function onSearch(v){ currentSearch=v; renderStore(); }
+function onSearch(v){
+  currentSearch=v;
+  // keep both search inputs in sync
+  const s=document.getElementById("search");
+  const sm=document.getElementById("search-mobile");
+  if(s && s.value!==v) s.value=v;
+  if(sm && sm.value!==v) sm.value=v;
+  renderStore();
+}
 
 function getLibrary(){
   if(!currentUser) return [];
