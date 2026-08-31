@@ -92,6 +92,13 @@ a{color:var(--accent);text-decoration:none}
 .user-chip img{width:32px;height:32px;border-radius:50%;object-fit:cover}
 .user-chip b{font-size:13px}
 .user-chip .role{font-size:10px;padding:2px 6px;border-radius:99px;font-weight:700;letter-spacing:.4px}
+.avatar-wrap{position:relative;border-radius:50%}
+.avatar-wrap.avatar-clickable{cursor:pointer}
+.avatar-wrap.avatar-clickable img{transition:.2s}
+.avatar-wrap.avatar-clickable:hover img{filter:brightness(.7)}
+.avatar-overlay{position:absolute;inset:0;border-radius:50%;background:rgba(0,0,0,.55);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#fff;font-size:10px;font-weight:700;opacity:0;transition:.2s;border:3px solid var(--primary);pointer-events:none}
+.avatar-wrap.avatar-clickable:hover .avatar-overlay{opacity:1}
+.avatar-overlay i{font-size:16px}
 .role-superadmin{background:linear-gradient(135deg,#ff2e63,#ff8a00);color:#fff}
 .role-admin{background:linear-gradient(135deg,#6c5cff,#00e5ff);color:#fff}
 .role-user{background:rgba(255,255,255,.1);color:var(--muted)}

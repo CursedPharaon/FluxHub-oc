@@ -145,9 +145,9 @@ function openProfile(userId){
   const games = DB.games.filter(g=>g.authorId===u.id && g.status==="approved");
   document.getElementById("profile-card").innerHTML = `
     <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-      <div style="position:relative">
-        <img src="${u.avatar}" style="width:80px;height:80px;border-radius:50%;border:3px solid var(--primary);object-fit:cover" onerror="this.src='https://i.pravatar.cc/200?u=${u.username}'">
-        ${isMe?`<button title="Сменить аватарку" onclick="document.getElementById('avatar-input').click()" style="position:absolute;bottom:0;right:0;width:28px;height:28px;border-radius:50%;background:var(--primary);border:2px solid var(--bg);color:#fff;display:grid;place-items:center;cursor:pointer"><i class="fa-solid fa-camera" style="font-size:12px"></i></button>`:''}
+      <div class="avatar-wrap ${isMe?'avatar-clickable':''}" style="position:relative;width:80px;height:80px;flex-shrink:0" ${isMe?`onclick="triggerAvatarPicker()" title="Нажми чтобы сменить аватарку"`:""}>
+        <img src="${u.avatar}" style="width:80px;height:80px;border-radius:50%;border:3px solid var(--primary);object-fit:cover;${isMe?'cursor:pointer':''}" onerror="this.src='https://i.pravatar.cc/200?u=${u.username}'" ${isMe?'title="Сменить аватарку — кликни по фото"':''}>
+        ${isMe?`<button title="Сменить аватарку" onclick="event.stopPropagation();triggerAvatarPicker()" style="position:absolute;bottom:0;right:0;width:28px;height:28px;border-radius:50%;background:var(--primary);border:2px solid var(--bg);color:#fff;display:grid;place-items:center;cursor:pointer;z-index:2"><i class="fa-solid fa-camera" style="font-size:12px"></i></button><div class="avatar-overlay"><i class="fa-solid fa-camera"></i><span>Сменить</span></div>`:''}
       </div>
       <div>
         <h2 style="font-family:Orbitron;display:flex;align-items:center;gap:8px">${u.username} ${u.role==="superadmin"?'<span class="badge" style="background:linear-gradient(135deg,#ff2e63,#ff8a00);color:#fff">SUPERADMIN</span>':u.role==="admin"?'<span class="badge" style="background:var(--primary);color:#fff">ADMIN</span>':''} ${isBanned(u)?'<span class="ban-badge">BAN '+banTimeLeft(u)+'</span>':''}</h2>
@@ -156,7 +156,7 @@ function openProfile(userId){
       </div>
       ${isMe?`<div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-ghost small" onclick="editProfile()"><i class="fa-solid fa-pen"></i> Редактировать био</button>
-        <button class="btn btn-primary small" onclick="document.getElementById('avatar-input').click()"><i class="fa-solid fa-image"></i> Сменить аватарку</button>
+        <button class="btn btn-primary small" onclick="triggerAvatarPicker()"><i class="fa-solid fa-image"></i> Сменить аватарку</button>
         <input type="file" id="avatar-input" accept="image/*" class="hidden" onchange="handleAvatarChange(this)">
       </div>`:''}
     </div>
@@ -167,28 +167,74 @@ function openProfile(userId){
   router("profile");
 }
 
+function triggerAvatarPicker(){
+  const inp = document.getElementById('avatar-input');
+  if(inp){
+    inp.click();
+  } else {
+    // fallback: create temporary input if profile not rendered
+    if(!currentUser) return toast("Войди чтобы сменить аватарку","error");
+    const tmp = document.createElement('input');
+    tmp.type='file';
+    tmp.accept='image/*';
+    tmp.style.display='none';
+    tmp.onchange = ()=> handleAvatarChange(tmp);
+    document.body.appendChild(tmp);
+    tmp.click();
+    setTimeout(()=> tmp.remove(), 60000);
+  }
+}
+
 function handleAvatarChange(input){
   const f = input.files && input.files[0];
   if(!f) return;
-  if(!f.type.startsWith("image/")) return toast("Выбери изображение","error");
-  if(f.size>2*1024*1024) return toast("Аватарка >2MB — выбери меньше","error");
+  if(!currentUser) return toast("Войди чтобы сменить аватарку","error");
+  if(!f.type.startsWith("image/")) {
+    toast("Выбери изображение (PNG/JPG/WEBP)","error");
+    input.value="";
+    return;
+  }
+  if(f.size>2*1024*1024) {
+    toast("Аватарка >2MB — выбери файл поменьше","error");
+    input.value="";
+    return;
+  }
   const r = new FileReader();
+  r.onerror = ()=>{
+    toast("Ошибка чтения файла","error");
+    input.value="";
+  };
   r.onload = async e=>{
     const dataUrl = e.target.result;
-    // simple validation: check dataUrl is image
-    currentUser.avatar = dataUrl;
-    const idx = DB.users.findIndex(x=>x.id===currentUser.id);
-    if(idx>=0) DB.users[idx].avatar = dataUrl;
-    // also update library? just user
-    localStorage.setItem("flux_user", JSON.stringify(currentUser));
-    await saveDB(true);
-    renderUserArea();
-    openProfile(currentUser.id);
-    toast("Аватарка обновлена ✨","success");
+    if(typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')){
+      toast("Файл не является изображением","error");
+      input.value="";
+      return;
+    }
+    // validate image loads
+    const img = new Image();
+    img.onload = async ()=>{
+      currentUser.avatar = dataUrl;
+      const idx = DB.users.findIndex(x=>x.id===currentUser.id);
+      if(idx>=0) DB.users[idx].avatar = dataUrl;
+      localStorage.setItem("flux_user", JSON.stringify(currentUser));
+      try{
+        await saveDB(true);
+      }catch(err){
+        console.warn("saveDB avatar error", err);
+      }
+      renderUserArea();
+      openProfile(currentUser.id);
+      toast("Аватарка обновлена ✨","success");
+      input.value="";
+    };
+    img.onerror = ()=>{
+      toast("Не удалось прочитать изображение","error");
+      input.value="";
+    };
+    img.src = dataUrl;
   };
   r.readAsDataURL(f);
-  // reset input to allow re-select same file
-  input.value="";
 }
 
 function editProfile(){
