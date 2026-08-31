@@ -389,15 +389,45 @@ function onSearch(v){
 
 function getLibrary(){
   if(!currentUser) return [];
-  const lib = JSON.parse(localStorage.getItem("flux_lib_"+currentUser.id) || "[]");
-  return lib;
+  // library теперь хранится в DB (per-account), localStorage только как миграция/кэш
+  let real = null;
+  try{ real = DB.users.find(u=>u.id===currentUser.id); }catch{}
+  if(real){
+    if(!Array.isArray(real.library)) real.library=[];
+    // миграция: если в localStorage остались старые данные — мерджим в DB
+    try{
+      const raw = localStorage.getItem("flux_lib_"+currentUser.id);
+      if(raw){
+        const arr = JSON.parse(raw);
+        if(Array.isArray(arr) && arr.length){
+          const merged=[...new Set([...real.library, ...arr])];
+          if(merged.length!==real.library.length){
+            real.library=merged;
+            saveDB();
+          }
+        }
+      }
+    }catch{}
+    // синхронизируем currentUser ссылку
+    currentUser.library = real.library;
+    return real.library;
+  }
+  if(!Array.isArray(currentUser.library)) currentUser.library=[];
+  return currentUser.library;
 }
 function addToLibrary(gameId){
   if(!currentUser) return openAuth();
   let lib = getLibrary();
   if(!lib.includes(gameId)){
     lib.push(gameId);
-    localStorage.setItem("flux_lib_"+currentUser.id, JSON.stringify(lib));
+    // синхронизируем с DB записью
+    const real = DB.users.find(u=>u.id===currentUser.id);
+    if(real) real.library = lib;
+    currentUser.library = lib;
+    // для обратной совместимости продублируем в localStorage (не является источником истины)
+    try{ localStorage.setItem("flux_lib_"+currentUser.id, JSON.stringify(lib)); }catch{}
+    // сохраняем в базу данных — теперь будет видно на всех устройствах после логина
+    saveDB();
     toast("Добавлено в библиотеку 📚","success");
     renderLibrary();
     renderStore();
@@ -407,7 +437,11 @@ function addToLibrary(gameId){
 }
 function removeFromLibrary(gameId){
   let lib=getLibrary().filter(id=>id!==gameId);
-  localStorage.setItem("flux_lib_"+currentUser.id, JSON.stringify(lib));
+  const real = DB.users.find(u=>u.id===currentUser.id);
+  if(real) real.library = lib;
+  if(currentUser) currentUser.library = lib;
+  try{ localStorage.setItem("flux_lib_"+currentUser.id, JSON.stringify(lib)); }catch{}
+  saveDB();
   renderLibrary();
   renderStore();
   toast("Удалено из библиотеки","info");

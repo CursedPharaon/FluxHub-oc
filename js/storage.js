@@ -8,7 +8,8 @@ function defaultUserExtras(){
     friendRequestsIncoming: [],
     friendRequestsOutgoing: [],
     privacy: { ...DEFAULT_PRIVACY },
-    settings: { ...DEFAULT_SETTINGS }
+    settings: { ...DEFAULT_SETTINGS },
+    library: []
   };
 }
 
@@ -28,7 +29,8 @@ const DEFAULT_DATA = {
       friendRequestsIncoming: [],
       friendRequestsOutgoing: [],
       privacy: { ...DEFAULT_PRIVACY },
-      settings: { ...DEFAULT_SETTINGS }
+      settings: { ...DEFAULT_SETTINGS },
+      library: []
     }
   ],
   games: [
@@ -112,6 +114,7 @@ function ensureUserDefaults(u){
   if(!Array.isArray(u.friends)){ u.friends=[]; ch=true; }
   if(!Array.isArray(u.friendRequestsIncoming)){ u.friendRequestsIncoming=[]; ch=true; }
   if(!Array.isArray(u.friendRequestsOutgoing)){ u.friendRequestsOutgoing=[]; ch=true; }
+  if(!Array.isArray(u.library)){ u.library=[]; ch=true; }
   if(!u.privacy || typeof u.privacy!=='object'){ u.privacy={...DEFAULT_PRIVACY}; ch=true; }
   else {
     if(!["all","friends","none"].includes(u.privacy.friendsVisibility)){ u.privacy.friendsVisibility="all"; ch=true; }
@@ -134,6 +137,7 @@ function ensureDBDefaults(){
   DB.users.forEach(u=>{ if(ensureUserDefaults(u)) ch=true; });
   // clean invalid friend refs
   const ids=new Set(DB.users.map(x=>x.id));
+  const gameIds=new Set((DB.games||[]).map(g=>g.id));
   DB.users.forEach(u=>{
     const beforeF=u.friends.length;
     u.friends=u.friends.filter(id=>ids.has(id) && id!==u.id);
@@ -148,6 +152,12 @@ function ensureDBDefaults(){
     u.friends=[...new Set(u.friends)];
     u.friendRequestsIncoming=[...new Set(u.friendRequestsIncoming)];
     u.friendRequestsOutgoing=[...new Set(u.friendRequestsOutgoing)];
+    // library: dedup + remove deleted games
+    if(Array.isArray(u.library)){
+      const beforeL=u.library.length;
+      u.library=[...new Set(u.library)].filter(id=>gameIds.has(id));
+      if(u.library.length!==beforeL) ch=true;
+    } else { u.library=[]; ch=true; }
   });
   // ensure chats valid
   const validChats=[];
@@ -163,6 +173,32 @@ function ensureDBDefaults(){
 
 function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
 
+// Миграция старых библиотек из localStorage (flux_lib_<userId>) в DB.users[].library
+function migrateLegacyLibraries(){
+  if(!DB || !Array.isArray(DB.users)) return false;
+  let changed=false;
+  const gameIds=new Set((DB.games||[]).map(g=>g.id));
+  for(const u of DB.users){
+    try{
+      const key="flux_lib_"+u.id;
+      const raw=localStorage.getItem(key);
+      if(!raw) continue;
+      const arr=JSON.parse(raw);
+      if(!Array.isArray(arr) || !arr.length) continue;
+      if(!Array.isArray(u.library)) u.library=[];
+      const merged=[...new Set([...u.library, ...arr])].filter(id=>gameIds.has(id) || !gameIds.size);
+      // если gameIds пустой (нет игр), просто мерджим
+      if(merged.length!==u.library.length){
+        u.library=merged;
+        changed=true;
+        console.log(`[migrate] library ${u.username}: +${arr.length} from localStorage`);
+      }
+      // оставляем ключ для совместимости, но можно очистить после успешной синхронизации
+    }catch(e){ console.warn("migrate lib error",e); }
+  }
+  return changed;
+}
+
 async function loadDB(){
   // 1) try server proxy -> JSONBin (real saving)
   try{
@@ -176,6 +212,9 @@ async function loadDB(){
       if(record && Array.isArray(record.users) && Array.isArray(record.games)){
         DB = record;
         let changed = ensureSuperAdmin();
+        if(ensureDBDefaults()) changed=true;
+        if(migrateLegacyLibraries()) changed=true;
+        // повторная чистка library после миграции
         if(ensureDBDefaults()) changed=true;
         localStorage.setItem("flux_db", JSON.stringify(DB));
         console.log("[FluxHub] Loaded from JSONbin via server proxy", DB);
@@ -196,6 +235,8 @@ async function loadDB(){
       DB = JSON.parse(local);
       let changed = ensureSuperAdmin();
       if(ensureDBDefaults()) changed=true;
+      if(migrateLegacyLibraries()) changed=true;
+      if(ensureDBDefaults()) changed=true;
       console.log("[FluxHub] Loaded from localStorage cache");
       if(changed){
         localStorage.setItem("flux_db", JSON.stringify(DB));
@@ -207,6 +248,8 @@ async function loadDB(){
   }
   DB = deepClone(DEFAULT_DATA);
   ensureSuperAdmin();
+  ensureDBDefaults();
+  migrateLegacyLibraries();
   ensureDBDefaults();
   // fix timestamps for default demo games if created before
   DB.games.forEach(g=>{
