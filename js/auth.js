@@ -41,14 +41,16 @@ function hashPass(p){ // simple demo hash
 function renderUserArea(){
   const el = document.getElementById("user-area");
   const adminBtn = document.getElementById("nav-admin");
+  const adminBtnM = document.getElementById("nav-admin-m");
   if(!currentUser){
-    adminBtn.classList.add("hidden");
+    if(adminBtn) adminBtn.classList.add("hidden");
+    if(adminBtnM) adminBtnM.classList.add("hidden");
     el.innerHTML = `<button class="btn-login" onclick="openAuth()"><i class="fa-solid fa-right-to-bracket"></i> Войти</button>`;
     return;
   }
   // show admin button if admin
-  if(isAdmin(currentUser)) adminBtn.classList.remove("hidden");
-  else adminBtn.classList.add("hidden");
+  if(isAdmin(currentUser)){ if(adminBtn) adminBtn.classList.remove("hidden"); if(adminBtnM) adminBtnM.classList.remove("hidden"); }
+  else { if(adminBtn) adminBtn.classList.add("hidden"); if(adminBtnM) adminBtnM.classList.add("hidden"); }
 
   const roleClass = currentUser.role==="superadmin"?"role-superadmin":currentUser.role==="admin"?"role-admin":"role-user";
   const roleLabel = currentUser.role==="superadmin"?"SUPERADMIN":currentUser.role==="admin"?"ADMIN":"PLAYER";

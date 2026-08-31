@@ -1,16 +1,51 @@
+function isMobileViewport(){ return window.innerWidth <= 768 || /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent); }
+
+function toggleDrawer(force){
+  const drawer=document.getElementById("mobile-drawer");
+  const overlay=document.getElementById("drawer-overlay");
+  if(!drawer||!overlay) return;
+  const shouldOpen = typeof force==="boolean" ? force : !drawer.classList.contains("open");
+  drawer.classList.toggle("open", shouldOpen);
+  overlay.classList.toggle("open", shouldOpen);
+  drawer.setAttribute("aria-hidden", shouldOpen? "false":"true");
+  document.body.style.overflow = shouldOpen ? "hidden" : "";
+}
+function toggleMobileSearch(force){
+  const box=document.getElementById("mobile-search");
+  const inp=document.getElementById("search-mobile");
+  if(!box) return;
+  const shouldOpen = typeof force==="boolean" ? force : !box.classList.contains("open");
+  box.classList.toggle("open", shouldOpen);
+  if(shouldOpen && inp) setTimeout(()=>inp.focus(), 100);
+  if(!shouldOpen){
+    const main=document.getElementById("search");
+    const mob=document.getElementById("search-mobile");
+    if(main && mob) mob.value=main.value;
+  }
+}
+function syncMobileNav(view){
+  document.querySelectorAll(".nav-btn").forEach(b=>b.classList.toggle("active", b.dataset.view===view));
+  document.querySelectorAll(".drawer-btn").forEach(b=>b.classList.toggle("active", b.dataset.view===view));
+  document.querySelectorAll(".bnav-btn").forEach(b=>b.classList.toggle("active", b.dataset.view===view));
+  // close mobile search after nav on small
+  if(isMobileViewport()){
+    const ms=document.getElementById("mobile-search");
+    if(ms) ms.classList.remove("open");
+  }
+}
+
 function router(view){
   // ban check
   if(currentUser && isBanned(currentUser)){
     toast(`Ты забанен ⛔ Осталось ${banTimeLeft(currentUser)}`,"error");
   }
   document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
-  document.querySelectorAll(".nav-btn").forEach(b=>b.classList.remove("active"));
   const el=document.getElementById("view-"+view);
   if(el) el.classList.add("active");
-  const nav=document.querySelector(`.nav-btn[data-view="${view}"]`);
-  if(nav) nav.classList.add("active");
+  syncMobileNav(view);
   // hero only on store
-  document.getElementById("hero").style.display = view==="store"?"block":"none";
+  const hero=document.getElementById("hero");
+  if(hero) hero.style.display = view==="store"?"block":"none";
   if(view==="store") renderStore();
   if(view==="library") renderLibrary();
   if(view==="friends") renderFriends();
@@ -23,6 +58,9 @@ function router(view){
     renderAdminMod(); renderAdminUsers(); renderAdminGames(); renderAdminStats();
   }
   if(currentUser && typeof updateSocialBadges==="function") updateSocialBadges();
+  // ensure drawer closed after navigation
+  const drawer=document.getElementById("mobile-drawer");
+  if(drawer && drawer.classList.contains("open")) toggleDrawer(false);
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
@@ -48,9 +86,9 @@ function renderAll(){
   if(typeof renderSettings==="function" && document.getElementById("view-settings")?.classList.contains("active")) renderSettings();
 }
 
-// ESC to close modals
+// ESC to close modals & drawer
 document.addEventListener("keydown",e=>{
-  if(e.key==="Escape"){ closeGame(); closePlay(); closeAuth(); }
+  if(e.key==="Escape"){ closeGame(); closePlay(); closeAuth(); toggleDrawer(false); const ms=document.getElementById("mobile-search"); if(ms) ms.classList.remove("open"); }
 });
 
 window.addEventListener("DOMContentLoaded", async ()=>{
@@ -58,6 +96,18 @@ window.addEventListener("DOMContentLoaded", async ()=>{
   initAuth();
   renderAll();
   if(typeof updateSocialBadges==="function") updateSocialBadges();
+  // mobile: detect phone and add body class for extra tweaks, keep desktop untouched
+  const applyMobileClass=()=> document.body.classList.toggle("is-mobile", isMobileViewport());
+  applyMobileClass();
+  window.addEventListener("resize", applyMobileClass);
+  // swipe to open drawer (touch from left edge)
+  let touchStartX=0;
+  document.addEventListener("touchstart", e=>{ touchStartX=e.touches[0].clientX; }, {passive:true});
+  document.addEventListener("touchend", e=>{
+    const dx=e.changedTouches[0].clientX - touchStartX;
+    if(touchStartX<20 && dx>60) toggleDrawer(true);
+    if(dx<-60) toggleDrawer(false);
+  }, {passive:true});
   // check ban on interval
   setInterval(()=>{
     if(currentUser){
